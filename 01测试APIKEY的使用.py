@@ -1,9 +1,20 @@
 from openai import OpenAI
 import os
+from dotenv import load_dotenv
+
+# 加载.env文件中的环境变量
+load_dotenv()
+
+# 从环境变量获取API Key
+api_key = os.getenv("DASHSCOPE_API_KEY")
+
+if not api_key:
+    raise ValueError("请设置DASHSCOPE_API_KEY环境变量")
+
 
 client = OpenAI(
     # 如果没有配置环境变量，请用阿里云百炼API Key替换：api_key="sk-xxx"
-    api_key="sk-6c104eac72f6401fae6f2ffdfa749ba0",
+    api_key=api_key,  # 从环境变量读取
     base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
 )
 
