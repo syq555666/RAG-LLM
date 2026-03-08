@@ -5,3 +5,7 @@
 *.iml
 *.iws
 *.ipr
+
+# IDE配置
+.idea/
+*.iml
