@@ -1,5 +1,9 @@
 import json
 
+#json.dumps可以将python数据结构转换为json字符串
+#json.load可以将json字符串转换为数据结构
+#下面是应用
+
 d= {
     "name": "周杰伦",
     "age": 22,
