@@ -32,4 +32,4 @@ if prompt:
                 yield chunk
 
         st.chat_message("assistant").write_stream(capture(res_stream, ai_res_list))
-        st.session_state["message"].append({"role": "user", "content": "".join(ai_res_list)})
+        st.session_state["message"].append({"role": "assistant", "content": "".join(ai_res_list)})
