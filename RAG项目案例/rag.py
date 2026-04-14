@@ -2,7 +2,7 @@ from langchain_community.embeddings import DashScopeEmbeddings
 from langchain_core.documents import Document
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.runnables import Runnable, RunnablePassthrough, RunnableWithMessageHistory, RunnableLambda
+from langchain_core.runnables import RunnablePassthrough, RunnableWithMessageHistory, RunnableLambda
 from vector_stores import VectorStoreService, HybridRetriever
 import config_data as config
 from langchain_community.chat_models.tongyi import ChatTongyi
@@ -20,7 +20,7 @@ def debug_print_prompt(prompt):
         print("=" * 20)
     return prompt
 
-class RagService(object):
+class RagService:
     def __init__(self):
 
         self.vector_service = VectorStoreService(
@@ -34,7 +34,7 @@ class RagService(object):
                 ("system", "你是一个专业的客服助手。请根据以下参考资料来回答用户的问题。"
                  "\n\n【参考资料】\n{context}"),
                 ("system", "以下是与用户的对话历史："),
-                MessagesPlaceholder("history"),
+                MessagesPlaceholder(variable_name="history", optional=True),
                 ("user", "{input}")
             ]
         )
@@ -45,9 +45,17 @@ class RagService(object):
 
 
     def __get_chain(self):
-        # 使用混合检索器，用 RunnableLambda 包装
-        from langchain_core.runnables import RunnableLambda
-        retriever = RunnableLambda(lambda q: self.hybrid_retriever.invoke(q))
+        def safe_retriever(query):
+            """安全检索，处理空知识库的情况"""
+            try:
+                return self.hybrid_retriever.invoke(query)
+            except Exception as e:
+                if config.debug_mode:
+                    print(f"检索错误: {e}")
+                return []
+
+        # 使用安全检索器
+        retriever = RunnableLambda(safe_retriever)
 
         def format_document(docs: list[Document]):
             if not docs:
@@ -60,8 +68,9 @@ class RagService(object):
             return formatted_str
 
 
-        def format_for_retriever(value : dict) -> str:
-            return value["input"]
+        def format_for_retriever(value):
+            # value 已经是 {"input": prompt} 格式
+            return value.get("input", "")
 
         def format_for_prompt_template(value):
             new_value = {}
@@ -87,13 +96,3 @@ class RagService(object):
             history_messages_key="history",
         )
         return conversation_chain
-
-if __name__ == "__main__":
-    session_config = {
-        "configurable": {
-            "session_id": "user_001",
-        }
-    }
-
-    res = RagService().chain.invoke({"input": "羽绒服怎么清洗"}, session_config)
-    print(res)

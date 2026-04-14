@@ -14,12 +14,13 @@ api_key = os.getenv("DASHSCOPE_API_KEY")
 class HybridRetriever:
     """混合检索器：结合向量检索和BM25关键词检索"""
 
-    def __init__(self, vector_store, k: int = 5):
+    def __init__(self, vector_store, k: int = 5, bm25_threshold: float = 1.0):
         self.vector_store = vector_store
         self.k = k
         self.bm25 = None
         self.chunk_texts = []
         self._index_built = False
+        self.bm25_threshold = bm25_threshold  # BM25 最小分数阈值
 
     def _build_bm25_index(self):
         """从Chroma获取所有文档构建BM25索引"""
@@ -47,7 +48,8 @@ class HybridRetriever:
             query_tokens = query.split()
             bm25_scores = self.bm25.get_scores(query_tokens)
             top_indices = np.argsort(bm25_scores)[-self.k:][::-1]
-            bm25_docs = [self.chunk_texts[i] for i in top_indices if bm25_scores[i] > 0]
+            # 使用可配置的阈值过滤
+            bm25_docs = [self.chunk_texts[i] for i in top_indices if bm25_scores[i] > self.bm25_threshold]
 
         # RRF融合
         fused_docs = self._rrf_fusion(vector_docs, bm25_docs)

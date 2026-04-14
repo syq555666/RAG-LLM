@@ -135,6 +135,8 @@ class KnowledgeBaseService(object):
                 new_chunks.append(chunk)
                 # 将新 chunk 的 SimHash 加入索引
                 self.simhash_index.append(Simhash(chunk).value)
+                # 立即保存 SimHash 索引，防止崩溃丢失
+                save_simhash_index(self.simhash_index)
 
         if not new_chunks:
             # 所有 chunk 都是相似的，记录 MD5 但不新增
@@ -152,8 +154,7 @@ class KnowledgeBaseService(object):
             metadatas=[metadata for _ in new_chunks],
         )
 
-        # 保存 SimHash 索引
-        save_simhash_index(self.simhash_index)
+        # 保存 MD5（SimHash 已在循环中实时保存）
         save_md5(md5_hex)
 
         # 返回结果包含跳过数量

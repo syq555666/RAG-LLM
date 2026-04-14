@@ -17,8 +17,8 @@ class FileChatMessageHistory(BaseChatMessageHistory):
         #完整的文件路径
         self.file_path = os.path.join(self.storage_path, f"{self.session_id}.json")
 
-        #确保文件存在
-        os.makedirs(os.path.dirname(self.file_path), exist_ok=True)
+        #确保文件存在（使用 exist_ok=True 避免重复创建报错）
+        os.makedirs(self.storage_path, exist_ok=True)
 
 
     def add_messages(self, messages: Sequence[BaseMessage]) -> None:

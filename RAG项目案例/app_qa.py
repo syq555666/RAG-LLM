@@ -1,4 +1,3 @@
-import time
 from rag import RagService
 from knowledge_base import KnowledgeBaseService
 import streamlit as st

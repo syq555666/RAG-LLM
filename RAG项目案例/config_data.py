@@ -28,3 +28,11 @@ chat_model_name = os.getenv("CHAT_MODEL_NAME", "qwen3-max")
 
 # 调试模式
 debug_mode = os.getenv("DEBUG", "false").lower() == "true"
+
+
+# 会话配置
+session_config = {
+    "configurable": {
+        "session_id": "default_session",
+    }
+}
