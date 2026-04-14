@@ -3,7 +3,7 @@ from langchain_core.documents import Document
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable, RunnablePassthrough, RunnableWithMessageHistory, RunnableLambda
-from vector_stores import VectorStoreService
+from vector_stores import VectorStoreService, HybridRetriever
 import config_data as config
 from langchain_core.prompts import ChatPromptTemplate,MessagesPlaceholder
 from langchain_community.chat_models.tongyi import ChatTongyi
@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 from file_history_store import get_history
 
 load_dotenv()
-api_key = os.getenv("DISCORD_API_KEY")
+api_key = os.getenv("DASHSCOPE_API_KEY")
 
 
 def print_prompt(prompt):
@@ -27,14 +27,16 @@ class RagService(object):
         self.vector_service = VectorStoreService(
             embedding=DashScopeEmbeddings(model=config.embedding_model_name),
         )
+        # 使用混合检索器
+        self.hybrid_retriever = HybridRetriever(self.vector_service.vector_store, k=5)
 
         self.prompt_template = ChatPromptTemplate.from_messages(
             [
-                ("system", "以我提供的已知资参考资料为主，"
-                 "简介和专业的回答客户问题。参考资料:{context}。"),
-                ("system", "并且我提供用户的对话历史记录，如下："),
+                ("system", "你是一个专业的客服助手。请根据以下参考资料来回答用户的问题。"
+                 "\n\n【参考资料】\n{context}"),
+                ("system", "以下是与用户的对话历史："),
                 MessagesPlaceholder("history"),
-                ("user", "请回答用户问题: {input}")
+                ("user", "{input}")
             ]
         )
 
@@ -44,7 +46,9 @@ class RagService(object):
 
 
     def __get_chain(self):
-        retriever = self.vector_service.get_retriever()
+        # 使用混合检索器，用 RunnableLambda 包装
+        from langchain_core.runnables import RunnableLambda
+        retriever = RunnableLambda(lambda q: self.hybrid_retriever.invoke(q))
 
         def format_document(docs: list[Document]):
             if not docs:
@@ -80,7 +84,7 @@ class RagService(object):
         conversation_chain = RunnableWithMessageHistory(
             chain,
             get_history,
-            imput_messages_key="input",
+            input_messages_key="input",
             history_messages_key="history",
         )
         return conversation_chain
