@@ -9,3 +9,6 @@
 # IDE配置
 .idea/
 *.iml
+
+#忽略苹果系统生成的文件
+.DS_Store
