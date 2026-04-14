@@ -1,24 +1,23 @@
 from langchain_community.embeddings import DashScopeEmbeddings
 from langchain_core.documents import Document
 from langchain_core.output_parsers import StrOutputParser
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables import Runnable, RunnablePassthrough, RunnableWithMessageHistory, RunnableLambda
 from vector_stores import VectorStoreService, HybridRetriever
 import config_data as config
-from langchain_core.prompts import ChatPromptTemplate,MessagesPlaceholder
 from langchain_community.chat_models.tongyi import ChatTongyi
-import os
 from dotenv import load_dotenv
 from file_history_store import get_history
 
 load_dotenv()
-api_key = os.getenv("DASHSCOPE_API_KEY")
 
 
-def print_prompt(prompt):
-    print("="*20)
-    print(prompt.to_string())
-    print("="*20)
+def debug_print_prompt(prompt):
+    """调试模式下打印 prompt"""
+    if config.debug_mode:
+        print("=" * 20)
+        print(prompt.to_string())
+        print("=" * 20)
     return prompt
 
 class RagService(object):
@@ -77,7 +76,7 @@ class RagService(object):
             {
                 "input": RunnablePassthrough(),
                 "context": RunnableLambda(format_for_retriever) | retriever | RunnableLambda(format_document),
-            } | RunnableLambda(format_for_prompt_template) | self.prompt_template | print_prompt | self.chat_model | StrOutputParser()
+            } | RunnableLambda(format_for_prompt_template) | self.prompt_template | debug_print_prompt | self.chat_model | StrOutputParser()
         )
 
 

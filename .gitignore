@@ -1,14 +1,41 @@
-# 忽略 .env 文件
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# 环境变量
 .env
-# IDE配置
+.env.local
+
+# IDE
 .idea/
+.vscode/
 *.iml
 *.iws
 *.ipr
-
-# IDE配置
-.idea/
-*.iml
-
-#忽略苹果系统生成的文件
 .DS_Store
+
+# 日志
+*.log
+
+# 临时文件
+*.tmp
+*.temp
+
+# 向量数据库
+chroma_db/
+chat_history/
+
+# 索引文件
+md5.text
+simhash_index.json
