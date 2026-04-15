@@ -1,9 +1,9 @@
 # RAG-LLM 依赖
 
-dashscope==1.25.16
-langchain==1.2.15
-langchain-chroma==1.1.0
-langchain-classic==1.0.3
+dashscope>=1.25.16
+langchain>=1.2.15
+langchain-chroma>=1.1.0
+langchain-classic>=1.0.3
 langchain-community>=0.4.1
 langchain-core>=1.2.28
 langchain-text-splitters>=1.1.1
@@ -15,3 +15,4 @@ simhash>=2.1.2
 streamlit>=1.56.0
 pypdf>=5.1.0
 chromadb>=0.6.0
+protobuf<4.0.0
