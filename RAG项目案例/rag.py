@@ -12,14 +12,6 @@ from file_history_store import get_history
 load_dotenv()
 
 
-def debug_print_prompt(prompt):
-    """调试模式下打印 prompt"""
-    if config.debug_mode:
-        print("=" * 20)
-        print(prompt.to_string())
-        print("=" * 20)
-    return prompt
-
 class RagService:
     def __init__(self):
 
@@ -31,8 +23,15 @@ class RagService:
 
         self.prompt_template = ChatPromptTemplate.from_messages(
             [
-                ("system", "你是一个专业的客服助手。请根据以下参考资料来回答用户的问题。"
-                 "\n\n【参考资料】\n{context}"),
+                ("system", """你是一个专业的客服助手。请根据以下参考资料来回答用户的问题。
+
+【回答要求】
+1. 如果参考资料中没有相关信息，请直接回复："抱歉，我无法从提供的资料中找到答案，建议您换个问题或补充更多细节。"
+2. 回答时分段清晰，内容较多时使用有序列表。
+3. 保持简洁，避免冗余。
+
+【参考资料】
+{context}"""),
                 ("system", "以下是与用户的对话历史："),
                 MessagesPlaceholder(variable_name="history", optional=True),
                 ("user", "{input}")
@@ -49,9 +48,7 @@ class RagService:
             """安全检索，处理空知识库的情况"""
             try:
                 return self.hybrid_retriever.invoke(query)
-            except Exception as e:
-                if config.debug_mode:
-                    print(f"检索错误: {e}")
+            except Exception:
                 return []
 
         # 使用安全检索器
@@ -85,7 +82,7 @@ class RagService:
             {
                 "input": RunnablePassthrough(),
                 "context": RunnableLambda(format_for_retriever) | retriever | RunnableLambda(format_document),
-            } | RunnableLambda(format_for_prompt_template) | self.prompt_template | debug_print_prompt | self.chat_model | StrOutputParser()
+            } | RunnableLambda(format_for_prompt_template) | self.prompt_template | self.chat_model | StrOutputParser()
         )
 
 

@@ -17,17 +17,13 @@ max_split_char_number = 1000 #文本分割的阈值
 
 
 # 检索参数
-top_k = 5  # 检索返回的文档数量
-score_threshold = 0.5  # 向量相似度阈值（0-1之间，越高越严格）
+top_k = 3  # 检索返回的文档数量
+score_threshold = 0.7  # 向量相似度阈值（0-1之间，越高越严格）
 
 
 # 默认模型配置（可通过环境变量覆盖）
 embedding_model_name = os.getenv("EMBEDDING_MODEL_NAME", "text-embedding-v4")
 chat_model_name = os.getenv("CHAT_MODEL_NAME", "qwen3-max")
-
-
-# 调试模式
-debug_mode = os.getenv("DEBUG", "false").lower() == "true"
 
 
 # 会话配置
