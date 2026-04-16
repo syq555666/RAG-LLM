@@ -25,41 +25,67 @@ with st.sidebar:
     except Exception as e:
         st.info("📊 当前知识库: 0 个文件")
 
-    uploaded_file = st.file_uploader(
+    # 上传成功后需要清空文件选择
+    if "upload_key" not in st.session_state:
+        st.session_state["upload_key"] = "file_uploader_0"
+
+    # 上传成功后更新 key，强制清空文件选择
+    if st.session_state.get("refresh_uploader"):
+        st.session_state["upload_key"] = f"file_uploader_{int(time.time() * 1000)}"
+        st.session_state["refresh_uploader"] = False
+
+    uploaded_files = st.file_uploader(
         "📤 上传文档到知识库",
         type=['txt', 'md', 'csv', 'json'],
+        accept_multiple_files=True,
+        key=st.session_state["upload_key"],
         label_visibility="visible"
     )
 
-    if uploaded_file is not None:
-        # 读取文件内容
-        try:
-            if uploaded_file.name.endswith('.csv'):
-                import pandas as pd
-                df = pd.read_csv(uploaded_file)
-                content = df.to_string()
-            elif uploaded_file.name.endswith('.json'):
-                import json
-                content = json.dumps(json.load(uploaded_file), ensure_ascii=False)
-            else:
-                content = uploaded_file.getvalue().decode('utf-8')
-        except Exception as e:
-            st.error(f"❌ 文件读取失败: {str(e)}")
-            content = None
+    if uploaded_files:
+        # 批量上传模式：遍历处理每个文件
+        for uploaded_file in uploaded_files:
+            # 显示文件信息
+            st.write(f"📄 待上传: {uploaded_file.name}")
 
-        if content is not None and st.button("🚀 确认上传", use_container_width=True):
-            try:
-                with st.spinner("🔄 上传中..."):
-                    kb_service = KnowledgeBaseService()
-                    result = kb_service.upload_by_str(content, uploaded_file.name)
-                # 先显示成功消息
-                st.success("✅ 上传成功！已入库")
-                # 延迟刷新，让用户看到提示
+        if st.button("🚀 批量上传", use_container_width=True):
+            success_count = 0
+            error_count = 0
+            for uploaded_file in uploaded_files:
+                # 读取文件内容
+                try:
+                    if uploaded_file.name.endswith('.csv'):
+                        import pandas as pd
+                        df = pd.read_csv(uploaded_file)
+                        content = df.to_string()
+                    elif uploaded_file.name.endswith('.json'):
+                        import json
+                        content = json.dumps(json.load(uploaded_file), ensure_ascii=False)
+                    else:
+                        content = uploaded_file.getvalue().decode('utf-8')
+                except Exception as e:
+                    st.error(f"❌ 文件 {uploaded_file.name} 读取失败: {str(e)}")
+                    error_count += 1
+                    continue
+
+                if content is not None:
+                    try:
+                        with st.spinner("🔄 上传中..."):
+                            kb_service = KnowledgeBaseService()
+                            result = kb_service.upload_by_str(content, uploaded_file.name)
+                        success_count += 1
+                    except Exception as e:
+                        st.error(f"❌ 文件 {uploaded_file.name} 上传失败: {str(e)}")
+                        error_count += 1
+
+            if success_count > 0:
+                st.session_state["refresh_uploader"] = True
+                st.success(f"✅ 成功上传 {success_count} 个文件")
                 import time
                 time.sleep(1)
                 st.rerun()
-            except Exception as e:
-                st.error(f"❌ 上传失败: {str(e)}")
+            if error_count > 0:
+                st.error(f"❌ {error_count} 个文件上传失败")
 
     # 刷新按钮
     if st.button("🔄 刷新知识库", use_container_width=True):
