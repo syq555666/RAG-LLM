@@ -161,6 +161,23 @@ class KnowledgeBaseService(object):
         skipped_info = f"，跳过了 {len(skipped_chunks)} 个相似段落" if skipped_chunks else ""
         return f"【成功】，{len(new_chunks)} 个新段落已入库{skipped_info}"
 
+    def delete_by_filename(self, filename: str):
+        """根据文件名删除所有关联的 chunk"""
+        self.chroma.delete(where={"source": filename})
+
+        # 清理 md5 索引文件（删除后重新上传时不会被误判为已存在）
+        if os.path.exists(config.md5_path):
+            with open(config.md5_path, 'w', encoding='utf-8') as f:
+                f.write('')
+
+        # 清理 simhash 索引文件
+        if os.path.exists(config.simhash_path):
+            with open(config.simhash_path, 'w', encoding='utf-8') as f:
+                f.write('[]')
+
+        # 清空内存中的 simhash 索引
+        self.simhash_index = []
+
 
 if __name__ == '__main__':
     service = KnowledgeBaseService()
