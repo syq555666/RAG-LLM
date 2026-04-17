@@ -1,15 +1,18 @@
 from langchain_community.embeddings import DashScopeEmbeddings
 from langchain_core.documents import Document
 from langchain_core.output_parsers import StrOutputParser
-from langchain_core.runnables import RunnablePassthrough, RunnableWithMessageHistory, RunnableLambda
+from langchain_core.runnables import RunnablePassthrough, RunnableLambda
 from vector_stores import VectorStoreService, HybridRetriever
 import config_data as config
 from langchain_community.chat_models.tongyi import ChatTongyi
 from dotenv import load_dotenv
-from file_history_store import get_history, SummarizingChatMessageHistory
+from file_history_store import SummarizingChatMessageHistory
 from prompts import RAG_PROMPT_TEMPLATE
 
 load_dotenv()
+
+# 会话历史存储路径
+HISTORY_STORAGE_PATH = "./chat_history"
 
 
 class RagService:
@@ -56,11 +59,18 @@ class RagService:
             return value.get("input", "")
 
         def format_for_prompt_template(value):
+            # 获取 session_id（从 config 中获取）
+            config_data = value.get("_config", {})
+            session_id = config_data.get("configurable", {}).get("session_id", "default_session")
+
+            # 获取历史摘要
+            history = SummarizingChatMessageHistory(session_id, HISTORY_STORAGE_PATH)
+            summary = history.get_context_for_llm()
+
             new_value = {}
             new_value["input"] = value["input"]["input"]
             new_value["context"] = value["context"]
-            # 获取带摘要的上下文
-            new_value["history"] = value["input"]["history"]
+            new_value["summary"] = summary if summary else "无历史对话"
 
             return new_value
 
@@ -72,14 +82,4 @@ class RagService:
             } | RunnableLambda(format_for_prompt_template) | self.prompt_template | self.chat_model | StrOutputParser()
         )
 
-        # 使用自定义的历史消息处理器
-        def get_chat_history(session_id: str):
-            return SummarizingChatMessageHistory(session_id, "./chat_history")
-
-        conversation_chain = RunnableWithMessageHistory(
-            chain,
-            get_chat_history,
-            input_messages_key="input",
-            history_messages_key="history",
-        )
-        return conversation_chain
+        return chain

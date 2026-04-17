@@ -1,7 +1,7 @@
 # Prompt 模板配置
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.prompts import ChatPromptTemplate
 
-# 默认的 RAG 问答 prompt
+# RAG 问答 prompt - 使用摘要代替完整历史
 RAG_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages(
     [
         ("system", """你是一个专业的客服助手。请根据以下参考资料来回答用户的问题。
@@ -11,10 +11,11 @@ RAG_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages(
 2. 回答时分段清晰，内容较多时使用有序列表。
 3. 保持简洁，避免冗余。
 
+【历史摘要】
+{summary}
+
 【参考资料】
 {context}"""),
-        ("system", "以下是与用户的对话历史："),
-        MessagesPlaceholder(variable_name="history", optional=True),
         ("user", "{input}")
     ]
 )

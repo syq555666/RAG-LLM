@@ -1,8 +1,12 @@
 from rag import RagService
 from knowledge_base import KnowledgeBaseService
+from file_history_store import SummarizingChatMessageHistory
 import streamlit as st
 import config_data as config
 import time
+
+# 历史存储路径
+HISTORY_STORAGE_PATH = "./chat_history"
 
 st.set_page_config(page_title="智能客服", page_icon="🤖", layout="wide")
 
@@ -150,6 +154,7 @@ if prompt:
         st.markdown(prompt)
     st.session_state["message"].append({"role": "user", "content": prompt})
 
+    # RAG 检索
     ai_res_list = []
     with st.spinner("🤔 AI 正在思考中..."):
         try:
@@ -164,5 +169,11 @@ if prompt:
                 full_response = st.write_stream(capture(res_stream, ai_res_list))
 
             st.session_state["message"].append({"role": "assistant", "content": "".join(ai_res_list)})
+
+            # 保存到历史记录
+            session_id = config.session_config.get("configurable", {}).get("session_id", "default_session")
+            history = SummarizingChatMessageHistory(session_id, HISTORY_STORAGE_PATH)
+            from langchain_core.messages import HumanMessage, AIMessage
+            history.add_messages([HumanMessage(content=prompt), AIMessage(content="".join(ai_res_list))])
         except Exception as e:
             st.error(f"❌ 检索失败: {str(e)}")
