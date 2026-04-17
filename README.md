@@ -4,9 +4,10 @@
 
 ## 功能特性
 
-- 📚 **知识库管理** - 支持上传 txt、md、csv、json 格式文档
+- 📚 **知识库管理** - 支持 txt、md、csv、json 格式文档批量上传
+- 🗑️ **文件管理** - 支持查看和删除知识库中的文件
 - 🔍 **混合检索** - 结合向量检索 + BM25 关键词检索
-- 💬 **智能问答** - 基于 RAG 增强的对话能力
+- 💬 **智能问答** - 基于 RAG 增强的对话能力，流式输出
 - 📝 **会话历史** - 基于文件的历史记录存储
 - 🔄 **去重机制** - MD5 精确去重 + SimHash 近似去重
 
@@ -43,7 +44,7 @@ DASHSCOPE_API_KEY=your_api_key_here
 ## 运行
 
 ```bash
-streamlit run app_qa.py
+streamlit run RAG项目案例/app_qa.py
 ```
 
 浏览器访问 http://localhost:8501
@@ -51,17 +52,23 @@ streamlit run app_qa.py
 ## 项目结构
 
 ```
-RAG项目案例/
-├── app_qa.py              # Streamlit Web 界面
-├── rag.py                 # RAG 核心服务
-├── knowledge_base.py      # 知识库管理
-├── vector_stores.py       # 向量存储 & 混合检索
-├── file_history_store.py  # 会话历史存储
-├── config_data.py         # 配置文件
-├── requirements.txt       # Python 依赖
-└── .env.example           # 环境变量模板
-    ├── chroma_db/        # 向量数据库
-    └── chat_history/     # 会话历史
+RAG-LLM/
+├── README.md                 # 项目说明文档
+├── requirements.txt          # Python 依赖
+├── .env.example              # 环境变量模板
+└── RAG项目案例/
+    ├── app_qa.py              # Streamlit Web 界面
+    ├── rag.py                 # RAG 核心服务
+    ├── knowledge_base.py      # 知识库管理
+    ├── vector_stores.py       # 向量存储 & 混合检索
+    ├── file_history_store.py  # 会话历史存储
+    └── config_data.py         # 配置文件
+
+# 数据存储
+├── chroma_db/               # Chroma 向量数据库
+├── md5.text                 # MD5 精确去重索引
+├── simhash_index.json       # SimHash 近似去重索引
+└── chat_history/            # 会话历史记录
 ```
 
 ## 配置说明
@@ -73,8 +80,9 @@ RAG项目案例/
 | embedding_model | EMBEDDING_MODEL_NAME | text-embedding-v4 | embedding 模型 |
 | chat_model | CHAT_MODEL_NAME | qwen3-max | 对话模型 |
 | chunk_size | - | 1000 | 文本分块大小 |
-| top_k | - | 5 | 检索返回数量 |
-| debug_mode | DEBUG | false | 调试模式 |
+| chunk_overlap | - | 100 | 分块重叠长度 |
+| top_k | - | 3 | 检索返回数量 |
+| score_threshold | - | 0.7 | 向量相似度阈值 |
 
 ## 技术栈
 
