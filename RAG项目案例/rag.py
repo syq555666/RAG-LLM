@@ -6,7 +6,7 @@ from vector_stores import VectorStoreService, HybridRetriever
 import config_data as config
 from langchain_community.chat_models.tongyi import ChatTongyi
 from dotenv import load_dotenv
-from file_history_store import get_history
+from file_history_store import get_history, SummarizingChatMessageHistory
 from prompts import RAG_PROMPT_TEMPLATE
 
 load_dotenv()
@@ -59,6 +59,7 @@ class RagService:
             new_value = {}
             new_value["input"] = value["input"]["input"]
             new_value["context"] = value["context"]
+            # 获取带摘要的上下文
             new_value["history"] = value["input"]["history"]
 
             return new_value
@@ -71,10 +72,13 @@ class RagService:
             } | RunnableLambda(format_for_prompt_template) | self.prompt_template | self.chat_model | StrOutputParser()
         )
 
+        # 使用自定义的历史消息处理器
+        def get_chat_history(session_id: str):
+            return SummarizingChatMessageHistory(session_id, "./chat_history")
 
         conversation_chain = RunnableWithMessageHistory(
             chain,
-            get_history,
+            get_chat_history,
             input_messages_key="input",
             history_messages_key="history",
         )
