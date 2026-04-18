@@ -1,9 +1,13 @@
+import time
+import json
+
+import pandas as pd
 from rag import RagService
 from knowledge_base import KnowledgeBaseService
 from file_history_store import SummarizingChatMessageHistory
 import streamlit as st
 import config_data as config
-import time
+from langchain_core.messages import HumanMessage, AIMessage
 
 # 历史存储路径
 HISTORY_STORAGE_PATH = "./chat_history"
@@ -21,7 +25,6 @@ with st.sidebar:
     # 显示知识库状态
     try:
         kb_service = KnowledgeBaseService()
-        # 获取唯一的文件名数量
         collection = kb_service.chroma.get()
         metadatas = collection.get('metadatas', []) if collection else []
         unique_files = len(set(m.get('source') for m in metadatas if m and m.get('source')))
@@ -59,11 +62,9 @@ with st.sidebar:
                 # 读取文件内容
                 try:
                     if uploaded_file.name.endswith('.csv'):
-                        import pandas as pd
                         df = pd.read_csv(uploaded_file)
                         content = df.to_string()
                     elif uploaded_file.name.endswith('.json'):
-                        import json
                         content = json.dumps(json.load(uploaded_file), ensure_ascii=False)
                     else:
                         content = uploaded_file.getvalue().decode('utf-8')
@@ -80,12 +81,10 @@ with st.sidebar:
                         success_count += 1
                     except Exception as e:
                         st.error(f"❌ 文件 {uploaded_file.name} 上传失败: {str(e)}")
-                        error_count += 1
 
             if success_count > 0:
                 st.session_state["refresh_uploader"] = True
                 st.success(f"✅ 成功上传 {success_count} 个文件")
-                import time
                 time.sleep(1)
                 st.rerun()
             if error_count > 0:
@@ -103,7 +102,6 @@ with st.sidebar:
     if st.session_state.get('show_delete_msg'):
         deleted = st.session_state.pop('show_delete_msg')
         st.success(f"✅ 已删除 {deleted}")
-        import time
         time.sleep(0.5)
         st.rerun()
 
@@ -173,7 +171,6 @@ if prompt:
             # 保存到历史记录
             session_id = config.session_config.get("configurable", {}).get("session_id", "default_session")
             history = SummarizingChatMessageHistory(session_id, HISTORY_STORAGE_PATH)
-            from langchain_core.messages import HumanMessage, AIMessage
             history.add_messages([HumanMessage(content=prompt), AIMessage(content="".join(ai_res_list))])
         except Exception as e:
             st.error(f"❌ 检索失败: {str(e)}")
