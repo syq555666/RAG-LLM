@@ -1,14 +1,14 @@
-# RAG 智能客服系统
+# RAG-LLM 智能客服系统
 
-基于 LangChain + 通义千问 + Chroma 向量数据库的 RAG 应用，支持文档上传、混合检索、会话历史记录。
+基于 LangChain + 通义千问 + Chroma 向量数据库的 Agent 应用，支持文档上传、知识库检索、网络搜索。
 
 ## 功能特性
 
 - 📚 **知识库管理** - 支持 txt、md、csv、json 格式文档批量上传
 - 🗑️ **文件管理** - 支持查看和删除知识库中的文件
-- 🔍 **混合检索** - 结合向量检索 + BM25 关键词检索
-- 💬 **智能问答** - 基于 RAG 增强的对话能力，流式输出
-- 📝 **会话历史** - 基于文件的历史记录存储
+- 🔍 **Agent 智能问答** - 基于 ReAct 模式的 Agent，自动选择工具
+- 🔎 **网络搜索** - 实时搜索互联网获取最新信息
+- 📝 **会话历史** - 基于文件的历史记录存储，包含对话摘要
 - 🔄 **去重机制** - MD5 精确去重 + SimHash 近似去重
 
 ## 环境要求
@@ -25,6 +25,9 @@ conda activate rag
 
 # 安装依赖
 pip install -r requirements.txt
+
+# 安装搜索依赖
+pip install ddgs
 ```
 
 ## 配置
@@ -49,6 +52,26 @@ streamlit run RAG项目案例/app_qa.py
 
 浏览器访问 http://localhost:8501
 
+## Agent 功能
+
+系统基于 ReAct 模式实现 Agent，具备以下能力：
+
+| 工具 | 功能 | 使用场景 |
+|------|------|----------|
+| search_knowledge_base | 知识库搜索 | 产品信息、公司资料等 |
+| web_search | 网络搜索 | 实时新闻、天气等 |
+
+### ReAct 工作流程
+
+```
+问题: "今天天气怎么样"
+思考: 分析问题，需要获取实时天气
+行动: web_search
+行动输入: 今天天气
+观察: 今天北京晴，25度
+最终答案: 今天天气晴朗，气温25度
+```
+
 ## 项目结构
 
 ```
@@ -58,6 +81,7 @@ RAG-LLM/
 ├── .env.example              # 环境变量模板
 └── RAG项目案例/
     ├── app_qa.py              # Streamlit Web 界面
+    ├── agent.py               # Agent 核心服务 (ReAct)
     ├── rag.py                 # RAG 核心服务
     ├── knowledge_base.py      # 知识库管理
     ├── vector_stores.py       # 向量存储 & 混合检索
@@ -91,3 +115,4 @@ RAG-LLM/
 - **Vector DB**: Chroma
 - **UI**: Streamlit
 - **Framework**: LangChain
+- **搜索**: DuckDuckGo (ddgs)
