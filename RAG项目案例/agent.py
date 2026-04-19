@@ -1,37 +1,8 @@
 from langchain_core.tools import tool
 from langchain_community.chat_models.tongyi import ChatTongyi
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import StrOutputParser
 import config_data as config
 import re
-
-
-# ==================== 工具定义 ====================
-
-@tool
-def search_knowledge_base(query: str) -> str:
-    """搜索知识库中的相关内容。当用户询问产品信息、公司资料等问题时使用此工具。"""
-    try:
-        from vector_stores import VectorStoreService, HybridRetriever
-        from langchain_community.embeddings import DashScopeEmbeddings
-        import config_data as cfg
-
-        vector_service = VectorStoreService(
-            embedding=DashScopeEmbeddings(model=cfg.embedding_model_name),
-        )
-        retriever = HybridRetriever(vector_service.vector_store, k=3)
-        docs = retriever.invoke(query)
-
-        if not docs:
-            return "知识库中没有找到相关内容"
-
-        results = []
-        for i, doc in enumerate(docs[:3], 1):
-            results.append(f"相关文档 {i}: {doc.page_content[:200]}...")
-
-        return "\n\n".join(results)
-    except Exception as e:
-        return f"知识库搜索失败: {str(e)}"
 
 
 @tool
@@ -54,129 +25,139 @@ def web_search(query: str) -> str:
         return f"网络搜索失败: {str(e)}"
 
 
-@tool
-def calculator(expression: str) -> str:
-    """数学计算器。用于数学计算、金额计算等。只接受数学表达式，如 "2+3*5"、"100/4" 等。"""
-    try:
-        if not re.match(r'^[\d\+\-\*\/\.\(\)\s]+$', expression):
-            return "计算表达式包含非法字符"
-        result = eval(expression)
-        return f"{expression} = {result}"
-    except Exception as e:
-        return f"计算错误: {str(e)}"
-
-
 # 工具列表
-TOOLS = [search_knowledge_base, web_search, calculator]
-TOOL_NAMES = {t.name: t for t in TOOLS}
+TOOLS = [web_search]
+TOOL_NAMES = [t.name for t in TOOLS]
+TOOL_DESCRIPTIONS = "\n".join([f"- {t.name}: {t.description}" for t in TOOLS])
 
 
-# ==================== Agent 服务 ====================
+# ==================== ReAct Agent ====================
 
 class AgentService:
-    def __init__(self):
+    def __init__(self, max_iterations=5):
         # 初始化 LLM
         self.chat_model = ChatTongyi(model=config.chat_model_name)
-        # 创建 Agent
-        self._setup_agent()
+        self.max_iterations = max_iterations
 
-    def _setup_agent(self):
-        """设置 Agent"""
-        # 判断是否需要调用工具的 prompt
-        self.judge_prompt = ChatPromptTemplate.from_template("""你是一个智能助手。根据用户问题判断需要使用的工具。
+        # 初始化向量服务（避免每次调用都重新创建）
+        from langchain_community.embeddings import DashScopeEmbeddings
+        from vector_stores import VectorStoreService
+        self.vector_service = VectorStoreService(
+            embedding=DashScopeEmbeddings(model=config.embedding_model_name),
+        )
+
+        # ReAct Prompt
+        self.react_prompt = ChatPromptTemplate.from_template("""你是一个智能助手，可以使用工具来回答问题。
 
 可用工具：
-- search_knowledge_base: 搜索知识库
-- web_search: 搜索互联网
-- calculator: 数学计算
+{tool_descriptions}
 
-用户问题: {input}
+你必须按照以下格式思考和行动：
 
-请判断需要使用哪个工具（只输出工具名称，不需要其他内容）：
-如果不需要工具，请直接回答"无需工具".""")
+问题: {input}
+{agent_scratchpad}
+思考: 分析这个问题，决定下一步做什么
+行动: 工具名称（必须是 {tool_names} 之一）
+行动输入: 给工具的输入
+观察: 工具执行的结果
+... (这个过程可以重复多次)
+思考: 我现在有足够的信息可以回答问题了
+最终答案: 给用户的回答
 
-        # 构造回答的 prompt
-        self.answer_prompt = ChatPromptTemplate.from_template("""你是一个智能助手，请根据以下搜索结果回答用户问题。
+现在开始！
 
-用户问题: {input}
+问题: {input}
+{agent_scratchpad}
+思考: 分析这个问题，决定下一步做什么
+行动:""")
 
-知识库搜索结果:
-{kb_result}
+        self.prompt_template = self.react_prompt.partial(
+            tool_descriptions=TOOL_DESCRIPTIONS,
+            tool_names=", ".join(TOOL_NAMES)
+        )
 
-网络搜索结果:
-{web_result}
+    def _search_knowledge_base(self, query: str) -> str:
+        """搜索知识库"""
+        try:
+            from vector_stores import HybridRetriever
 
-计算结果:
-{calc_result}
+            retriever = HybridRetriever(self.vector_service.vector_store, k=3)
+            docs = retriever.invoke(query)
 
-请根据以上搜索结果回答用户问题。如果网络搜索结果中有相关信息，请整理后回答。如果没有相关信息，请如实说明。
-回答要求：直接给出答案，不要提及"根据搜索结果"这类话。""")
+            if not docs:
+                return "知识库中没有找到相关内容"
 
-        self.judge_chain = self.judge_prompt | self.chat_model | StrOutputParser()
-        self.answer_chain = self.answer_prompt | self.chat_model | StrOutputParser()
+            results = []
+            for i, doc in enumerate(docs[:3], 1):
+                results.append(f"相关文档 {i}: {doc.page_content[:200]}...")
+
+            return "\n\n".join(results)
+        except Exception as e:
+            return f"知识库搜索失败: {str(e)}"
+
+    def _parse_response(self, response: str) -> dict:
+        """解析模型输出，提取行动和观察"""
+        if "最终答案:" in response:
+            answer = response.split("最终答案:")[-1].strip()
+            return {"action": None, "action_input": None, "final_answer": answer, "done": True}
+
+        action = None
+        action_input = None
+
+        action_matches = re.findall(r"行动:\s*(\w+)", response)
+        if action_matches:
+            action = action_matches[-1].strip()
+
+        if action:
+            action_input_match = re.search(rf"行动:\s*{action}\s*\n行动输入:\s*(.+?)(?:\n行动:|$)", response, re.DOTALL)
+            if action_input_match:
+                action_input = action_input_match.group(1).strip()
+
+        if action is None or action_input is None:
+            return {"action": None, "action_input": None, "final_answer": response.strip(), "done": True}
+
+        return {"action": action, "action_input": action_input, "final_answer": None, "done": False}
+
+    def _execute_action(self, action: str, action_input: str) -> str:
+        """执行工具调用"""
+        if action == "search_knowledge_base":
+            result = self._search_knowledge_base(action_input)
+            return f"观察: {result}"
+        elif action == "web_search":
+            result = web_search.invoke(action_input)
+            return f"观察: {result}"
+        return f"观察: 未知工具 '{action}'"
 
     def invoke(self, query: str) -> str:
-        """调用 Agent"""
-        try:
-            # 1. 判断需要使用的工具
-            tool_name = self.judge_chain.invoke({"input": query}).strip()
-            print(f"判断工具: {tool_name}")
+        """调用 ReAct Agent"""
+        scratchpad = ""
 
-            # 2. 初始化结果
-            kb_result = "无"
-            web_result = "无"
-            calc_result = "无"
+        for _ in range(self.max_iterations):
+            try:
+                prompt_input = {"input": query, "agent_scratchpad": scratchpad if scratchpad else ""}
+                prompt = self.prompt_template.invoke(prompt_input)
+                llm_response = self.chat_model.invoke(prompt).content
 
-            # 3. 根据判断调用相应工具（支持多个工具）
-            if "无需工具" not in tool_name:
-                if "search_knowledge_base" in tool_name:
-                    try:
-                        kb_result = search_knowledge_base.invoke(query)
-                        print(f"知识库结果: {kb_result[:100]}...")
-                    except Exception as e:
-                        kb_result = f"搜索失败: {e}"
+                parsed = self._parse_response(llm_response)
 
-                if "web_search" in tool_name:
-                    try:
-                        web_result = web_search.invoke(query)
-                        print(f"网络结果: {web_result[:100]}...")
-                    except Exception as e:
-                        web_result = f"搜索失败: {e}"
+                if parsed["done"]:
+                    return parsed["final_answer"]
 
-                if "calculator" in tool_name:
-                    # 提取计算表达式
-                    expr = re.findall(r'[\d\+\-\*\/\.\(\)\s]+', query)
-                    expr = "".join(expr) if expr else None
-                    if expr:
-                        try:
-                            calc_result = calculator.invoke(expr)
-                            print(f"计算结果: {calc_result}")
-                        except Exception as e:
-                            calc_result = f"计算失败: {e}"
-                    else:
-                        calc_result = "无法从问题中提取计算表达式"
+                action = parsed["action"]
+                action_input = parsed["action_input"]
 
-            # 4. 检查是否有有效结果
-            has_result = any([kb_result != "无", web_result != "无", calc_result != "无" and "无法提取" not in calc_result])
+                if action and action in TOOL_NAMES:
+                    observation = self._execute_action(action, action_input)
+                    scratchpad += f"\n思考: 分析问题\n行动: {action}\n行动输入: {action_input}\n{observation}\n思考:"
+                else:
+                    return llm_response
 
-            if not has_result:
-                # 没有调用工具，直接让 LLM 回答
-                return self.chat_model.invoke(query).content
+            except Exception as e:
+                return f"执行出错: {str(e)}"
 
-            # 5. 生成最终回答
-            answer = self.answer_chain.invoke({
-                "input": query,
-                "kb_result": kb_result,
-                "web_result": web_result,
-                "calc_result": calc_result
-            })
-
-            return answer
-
-        except Exception as e:
-            return f"调用失败: {str(e)}"
+        return f"已达到最大迭代次数({self.max_iterations})，未能得到答案。"
 
 
 if __name__ == "__main__":
     agent = AgentService()
-    print(agent.invoke("计算 100+200"))
+    print(agent.invoke("今天天气怎么样"))

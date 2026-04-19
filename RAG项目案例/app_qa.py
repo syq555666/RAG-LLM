@@ -85,34 +85,25 @@ with st.sidebar:
     )
 
     if uploaded_files:
-        # 批量上传模式：遍历处理每个文件
-        for uploaded_file in uploaded_files:
-            # 显示文件信息
-            st.write(f"📄 待上传: {uploaded_file.name}")
-
         if st.button("🚀 批量上传", use_container_width=True):
             success_count = 0
-            error_count = 0
             for uploaded_file in uploaded_files:
+                st.write(f"📄 待上传: {uploaded_file.name}")
                 content = read_file(uploaded_file)
                 if content is not None:
                     try:
                         with st.spinner("🔄 上传中..."):
                             kb_service = get_kb_service()
-                            result = kb_service.upload_by_str(content, uploaded_file.name)
+                            kb_service.upload_by_str(content, uploaded_file.name)
                         success_count += 1
                     except Exception as e:
                         st.error(f"❌ 文件上传失败: {e}")
 
-            # 上传结果处理
             if success_count > 0:
                 st.session_state["refresh_uploader"] = True
                 st.success(f"✅ 成功上传 {success_count} 个文件")
                 time.sleep(1)
                 st.rerun()
-            if error_count > 0:
-                st.error(f"❌ {error_count} 个文件上传失败")
-            st.rerun()
 
     # 刷新按钮
     if st.button("🔄 刷新知识库", use_container_width=True):
@@ -134,7 +125,7 @@ with st.sidebar:
         file_names = get_file_list(kb_service)
 
         if file_names:
-            for _, filename in enumerate(file_names):
+            for filename in file_names:
                 col1, col2 = st.columns([5, 1])
                 with col1:
                     st.write(f"📄 {filename}")
@@ -172,11 +163,10 @@ if prompt:
         st.markdown(prompt)
     st.session_state["message"].append({"role": "user", "content": prompt})
 
-    # RAG 检索
+    # Agent 检索
     ai_res_list = []
     with st.spinner("🤔 AI 正在思考中..."):
         try:
-            # Agent 模式调用
             response = st.session_state["rag"].invoke(prompt)
             ai_res_list.append(response)
 
