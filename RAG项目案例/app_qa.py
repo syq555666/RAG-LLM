@@ -164,20 +164,24 @@ if prompt:
     st.session_state["message"].append({"role": "user", "content": prompt})
 
     # Agent 检索
-    ai_res_list = []
     with st.spinner("🤔 AI 正在思考中..."):
         try:
-            response = st.session_state["rag"].invoke(prompt)
-            ai_res_list.append(response)
+            # 构建对话历史
+            session_id = get_session_id()
+            history = SummarizingChatMessageHistory(session_id, HISTORY_STORAGE_PATH)
+            history_str = history.get_context_for_llm()
+
+            # 调用 Agent，传入历史
+            response = st.session_state["rag"].invoke(prompt, history=history_str)
 
             with st.chat_message("assistant"):
                 st.markdown(response)
 
-            st.session_state["message"].append({"role": "assistant", "content": "".join(ai_res_list)})
+            st.session_state["message"].append({"role": "assistant", "content": response})
 
             # 保存到历史记录
             session_id = get_session_id()
             history = SummarizingChatMessageHistory(session_id, HISTORY_STORAGE_PATH)
-            history.add_messages([HumanMessage(content=prompt), AIMessage(content="".join(ai_res_list))])
+            history.add_messages([HumanMessage(content=prompt), AIMessage(content=response)])
         except Exception as e:
             st.error(f"❌ 检索失败: {str(e)}")

@@ -1,8 +1,17 @@
 from langchain_core.tools import tool
 from langchain_community.chat_models.tongyi import ChatTongyi
 from langchain_core.prompts import ChatPromptTemplate
+from datetime import datetime
 import config_data as config
 import re
+from zoneinfo import ZoneInfo
+
+
+@tool
+def get_current_time() -> str:
+    """获取当前日期和时间。当你不知道今天是几号、现在几点时，必须使用此工具查询。不需要任何输入参数。"""
+    now = datetime.now(ZoneInfo("Asia/Shanghai"))
+    return f"当前时间：{now.strftime('%Y年%m月%d日 %H:%M')}"
 
 
 @tool
@@ -26,7 +35,7 @@ def web_search(query: str) -> str:
 
 
 # 工具列表
-TOOLS = [web_search]
+TOOLS = [get_current_time, web_search]
 TOOL_NAMES = [t.name for t in TOOLS]
 TOOL_DESCRIPTIONS = "\n".join([f"- {t.name}: {t.description}" for t in TOOLS])
 
@@ -47,7 +56,15 @@ class AgentService:
         )
 
         # ReAct Prompt
-        self.react_prompt = ChatPromptTemplate.from_template("""你是一个智能助手，可以使用工具来回答问题。
+        self.react_prompt = ChatPromptTemplate.from_template("""你是一个智能问答助手。
+
+【重要规则】
+- 当用户问时间、日期、天气等实时信息时，必须先调用 get_current_time 工具获取当前时间！
+- 不要凭空猜测时间，必须使用工具查询！
+- 注意对话上下文，如果用户的问题不完整，结合之前的对话理解用户意思！
+
+【对话历史】
+{conversation_history}
 
 可用工具：
 {tool_descriptions}
@@ -56,9 +73,9 @@ class AgentService:
 
 问题: {input}
 {agent_scratchpad}
-思考: 分析这个问题，决定下一步做什么
+思考: 分析这个问题，是否需要查询实时信息？如果是，必须使用工具。
 行动: 工具名称（必须是 {tool_names} 之一）
-行动输入: 给工具的输入
+行动输入: 给工具的输入（如果没有输入写"无"）
 观察: 工具执行的结果
 ... (这个过程可以重复多次)
 思考: 我现在有足够的信息可以回答问题了
@@ -73,7 +90,8 @@ class AgentService:
 
         self.prompt_template = self.react_prompt.partial(
             tool_descriptions=TOOL_DESCRIPTIONS,
-            tool_names=", ".join(TOOL_NAMES)
+            tool_names=", ".join(TOOL_NAMES),
+            conversation_history=""
         )
 
     def _search_knowledge_base(self, query: str) -> str:
@@ -120,21 +138,38 @@ class AgentService:
 
     def _execute_action(self, action: str, action_input: str) -> str:
         """执行工具调用"""
+        # 清理 action_input
+        action_input = action_input.strip() if action_input else ""
+        if action_input.lower() in ["无", "none", "null", ""]:
+            action_input = ""
+
         if action == "search_knowledge_base":
             result = self._search_knowledge_base(action_input)
             return f"观察: {result}"
         elif action == "web_search":
             result = web_search.invoke(action_input)
             return f"观察: {result}"
+        elif action == "get_current_time":
+            # 无参数工具，用空字典调用
+            result = get_current_time.invoke({})
+            return f"观察: {result}"
         return f"观察: 未知工具 '{action}'"
 
-    def invoke(self, query: str) -> str:
-        """调用 ReAct Agent"""
+    def invoke(self, query: str, history: str = "") -> str:
+        """调用 ReAct Agent
+        Args:
+            query: 用户问题
+            history: 对话历史（可选）
+        """
         scratchpad = ""
 
         for _ in range(self.max_iterations):
             try:
-                prompt_input = {"input": query, "agent_scratchpad": scratchpad if scratchpad else ""}
+                prompt_input = {
+                    "input": query,
+                    "agent_scratchpad": scratchpad if scratchpad else "",
+                    "conversation_history": history if history else "（无历史对话）"
+                }
                 prompt = self.prompt_template.invoke(prompt_input)
                 llm_response = self.chat_model.invoke(prompt).content
 
