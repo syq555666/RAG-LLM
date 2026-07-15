@@ -4,7 +4,7 @@
 
 ## 功能特性
 
-- 📚 **知识库管理** - 支持 txt、md、csv、json 格式文档批量上传
+- 📚 **知识库管理** - 支持 txt、md、csv、json 格式文档批量上传（自动去重）
 - 🗑️ **文件管理** - 支持查看和删除知识库中的文件
 - 🔍 **Agent 智能问答** - 基于 ReAct 模式的 Agent，自动选择工具
 - 🔎 **网络搜索** - 实时搜索互联网获取最新信息
@@ -113,12 +113,17 @@ RAG-LLM/
 
 ## 技术栈
 
+### 前端
+- **UI 框架**: Streamlit
+- **前端语言**: Python
+
+### 后端
 - **LLM**: 通义千问 (Qwen)
 - **Embedding**: DashScope Text Embedding
-- **Vector DB**: Chroma
-- **UI**: Streamlit
-- **Framework**: LangChain
+- **向量数据库**: Chroma
+- **开发框架**: LangChain
 - **搜索**: DuckDuckGo (ddgs)
+- **Python**: 3.10+
 
 ## 使用示例
 
@@ -161,11 +166,6 @@ Agent: (先搜索知识库，再搜索网络) 根据我的了解...
 ### Q4: 如何清空所有数据？
 删除项目根目录下的 `chroma_db`、`md5.text`、`simhash_index.json` 文件即可。
 
-## 截图
-
-> 📷 项目界面截图（请替换为实际截图）
-
-![Demo](./docs/demo.png)
 
 ## 许可证
 
