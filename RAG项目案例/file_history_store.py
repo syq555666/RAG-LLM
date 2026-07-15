@@ -3,7 +3,7 @@ import os
 from typing import Sequence
 from langchain_core.chat_history import BaseChatMessageHistory
 from langchain_core.messages import BaseMessage, message_to_dict, messages_from_dict
-from langchain_community.chat_models.tongyi import ChatTongyi
+from langchain_deepseek import ChatDeepSeek
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 import config_data as config
@@ -35,7 +35,7 @@ def _get_llm():
     """获取单例 LLM 实例"""
     global _llm
     if _llm is None:
-        _llm = ChatTongyi(model=config.chat_model_name)
+        _llm = ChatDeepSeek(model=config.chat_model_name)
     return _llm
 
 

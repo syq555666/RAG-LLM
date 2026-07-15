@@ -1,4 +1,8 @@
 import os
+from dotenv import load_dotenv
+
+# 加载环境变量
+load_dotenv()
 
 md5_path = "./md5.text"
 simhash_path = "./simhash_index.json"
@@ -24,11 +28,3 @@ score_threshold = 0.7  # 向量相似度阈值（0-1之间，越高越严格）
 # 默认模型配置（可通过环境变量覆盖）
 embedding_model_name = os.getenv("EMBEDDING_MODEL_NAME", "text-embedding-v4")
 chat_model_name = os.getenv("CHAT_MODEL_NAME", "qwen3-max")
-
-
-# 会话配置
-session_config = {
-    "configurable": {
-        "session_id": "default_session",
-    }
-}

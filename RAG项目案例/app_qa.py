@@ -6,8 +6,11 @@ from agent import AgentService
 from knowledge_base import KnowledgeBaseService
 from file_history_store import SummarizingChatMessageHistory
 import streamlit as st
-import config_data as config
 from langchain_core.messages import HumanMessage, AIMessage
+from dotenv import load_dotenv
+
+# 加载环境变量
+load_dotenv()
 
 # 历史存储路径
 HISTORY_STORAGE_PATH = "./chat_history"
@@ -51,8 +54,12 @@ def read_file(uploaded_file) -> str:
 
 
 def get_session_id():
-    """获取 session_id"""
-    return config.session_config.get("configurable", {}).get("session_id", "default_session")
+    """获取 session_id，每个用户/会话使用独立的 ID"""
+    if "session_id" not in st.session_state:
+        # 使用时间戳和随机数生成唯一 session_id
+        import uuid
+        st.session_state["session_id"] = f"session_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
+    return st.session_state["session_id"]
 
 
 # 侧边栏 - 知识库管理
@@ -150,7 +157,9 @@ if "message" not in st.session_state:
     st.session_state["message"] = [{"role": "assistant", "content": "你好，有什么可以帮助你？"}]
 
 if "rag" not in st.session_state:
-    st.session_state["rag"] = AgentService()
+    # 获取知识库的 vector_store 传给 Agent
+    kb_service = get_kb_service()
+    st.session_state["rag"] = AgentService(vector_store=kb_service.chroma)
 
 for message in st.session_state["message"]:
     with st.chat_message(message["role"]):
@@ -166,7 +175,7 @@ if prompt:
     # Agent 检索
     with st.spinner("🤔 AI 正在思考中..."):
         try:
-            # 构建对话历史
+            # 获取 session_id 并创建历史记录实例（复用）
             session_id = get_session_id()
             history = SummarizingChatMessageHistory(session_id, HISTORY_STORAGE_PATH)
             history_str = history.get_context_for_llm()
@@ -179,9 +188,7 @@ if prompt:
 
             st.session_state["message"].append({"role": "assistant", "content": response})
 
-            # 保存到历史记录
-            session_id = get_session_id()
-            history = SummarizingChatMessageHistory(session_id, HISTORY_STORAGE_PATH)
+            # 保存到历史记录（复用同一个 history 实例）
             history.add_messages([HumanMessage(content=prompt), AIMessage(content=response)])
         except Exception as e:
             st.error(f"❌ 检索失败: {str(e)}")

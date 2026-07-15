@@ -1,10 +1,11 @@
 from langchain_core.tools import tool
-from langchain_community.chat_models.tongyi import ChatTongyi
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_deepseek import ChatDeepSeek
 from datetime import datetime
 import config_data as config
-import re
+from dotenv import load_dotenv
 from zoneinfo import ZoneInfo
+
+load_dotenv()
 
 
 @tool
@@ -16,7 +17,7 @@ def get_current_time() -> str:
 
 @tool
 def web_search(query: str) -> str:
-    """搜索互联网获取最新信息。当用户询问实时新闻、天气、股价等实时信息时使用。"""
+    """搜索互联网获取最新信息。当用户询问实时新闻、天气、股价等实时信息时使用。query 是搜索关键词。"""
     try:
         from ddgs import DDGS
 
@@ -34,165 +35,146 @@ def web_search(query: str) -> str:
         return f"网络搜索失败: {str(e)}"
 
 
-# 工具列表
-TOOLS = [get_current_time, web_search]
-TOOL_NAMES = [t.name for t in TOOLS]
-TOOL_DESCRIPTIONS = "\n".join([f"- {t.name}: {t.description}" for t in TOOLS])
+# 基础工具列表
+BASE_TOOLS = [get_current_time, web_search]
 
 
-# ==================== ReAct Agent ====================
+# ==================== DeepSeek Agent ====================
 
 class AgentService:
-    def __init__(self, max_iterations=5):
+    def __init__(self, max_iterations=5, vector_store=None):
+        """初始化 Agent
+        Args:
+            max_iterations: 最大迭代次数
+            vector_store: 可选的向量存储，如果提供则会自动添加 RAG 工具
+        """
         # 初始化 LLM
-        self.chat_model = ChatTongyi(model=config.chat_model_name)
+        self.chat_model = ChatDeepSeek(model=config.chat_model_name)
         self.max_iterations = max_iterations
+        self.vector_store = vector_store
 
-        # 初始化向量服务（避免每次调用都重新创建）
-        from langchain_community.embeddings import DashScopeEmbeddings
-        from vector_stores import VectorStoreService
-        self.vector_service = VectorStoreService(
-            embedding=DashScopeEmbeddings(model=config.embedding_model_name),
-        )
+        # 构建工具列表
+        self.tools = BASE_TOOLS.copy()
+        if vector_store:
+            # 动态创建 RAG 工具
+            self._create_rag_tool()
 
-        # ReAct Prompt
-        self.react_prompt = ChatPromptTemplate.from_template("""你是一个智能问答助手。
+        self.tool_names = [t.name for t in self.tools]
 
-【重要规则】
-- 当用户问时间、日期、天气等实时信息时，必须先调用 get_current_time 工具获取当前时间！
-- 不要凭空猜测时间，必须使用工具查询！
-- 注意对话上下文，如果用户的问题不完整，结合之前的对话理解用户意思！
+        # 绑定工具到 LLM
+        self.llm_with_tools = self.chat_model.bind_tools(self.tools)
 
-【对话历史】
-{conversation_history}
+    def _create_rag_tool(self):
+        """创建 RAG 工具"""
+        from vector_stores import HybridRetriever
 
-可用工具：
-{tool_descriptions}
+        retriever = HybridRetriever(self.vector_store, k=3)
 
-你必须按照以下格式思考和行动：
+        @tool
+        def search_knowledge_base(query: str) -> str:
+            """搜索知识库获取相关信息。当用户问技术问题、文档相关内容时使用。query 是搜索关键词。"""
+            try:
+                docs = retriever.invoke(query)
+                if not docs:
+                    return "知识库中没有找到相关内容"
+                results = []
+                for i, doc in enumerate(docs[:3], 1):
+                    results.append(f"相关文档 {i}: {doc.page_content[:200]}...")
+                return "\n\n".join(results)
+            except Exception as e:
+                return f"知识库搜索失败: {str(e)}"
 
-问题: {input}
-{agent_scratchpad}
-思考: 分析这个问题，是否需要查询实时信息？如果是，必须使用工具。
-行动: 工具名称（必须是 {tool_names} 之一）
-行动输入: 给工具的输入（如果没有输入写"无"）
-观察: 工具执行的结果
-... (这个过程可以重复多次)
-思考: 我现在有足够的信息可以回答问题了
-最终答案: 给用户的回答
+        self.tools.append(search_knowledge_base)
+        # 更新绑定的工具
+        self.llm_with_tools = self.chat_model.bind_tools(self.tools)
 
-现在开始！
-
-问题: {input}
-{agent_scratchpad}
-思考: 分析这个问题，决定下一步做什么
-行动:""")
-
-        self.prompt_template = self.react_prompt.partial(
-            tool_descriptions=TOOL_DESCRIPTIONS,
-            tool_names=", ".join(TOOL_NAMES),
-            conversation_history=""
-        )
-
-    def _search_knowledge_base(self, query: str) -> str:
-        """搜索知识库"""
-        try:
-            from vector_stores import HybridRetriever
-
-            retriever = HybridRetriever(self.vector_service.vector_store, k=3)
-            docs = retriever.invoke(query)
-
-            if not docs:
-                return "知识库中没有找到相关内容"
-
-            results = []
-            for i, doc in enumerate(docs[:3], 1):
-                results.append(f"相关文档 {i}: {doc.page_content[:200]}...")
-
-            return "\n\n".join(results)
-        except Exception as e:
-            return f"知识库搜索失败: {str(e)}"
-
-    def _parse_response(self, response: str) -> dict:
-        """解析模型输出，提取行动和观察"""
-        if "最终答案:" in response:
-            answer = response.split("最终答案:")[-1].strip()
-            return {"action": None, "action_input": None, "final_answer": answer, "done": True}
-
-        action = None
-        action_input = None
-
-        action_matches = re.findall(r"行动:\s*(\w+)", response)
-        if action_matches:
-            action = action_matches[-1].strip()
-
-        if action:
-            action_input_match = re.search(rf"行动:\s*{action}\s*\n行动输入:\s*(.+?)(?:\n行动:|$)", response, re.DOTALL)
-            if action_input_match:
-                action_input = action_input_match.group(1).strip()
-
-        if action is None or action_input is None:
-            return {"action": None, "action_input": None, "final_answer": response.strip(), "done": True}
-
-        return {"action": action, "action_input": action_input, "final_answer": None, "done": False}
-
-    def _execute_action(self, action: str, action_input: str) -> str:
+    def _execute_tool(self, tool_name: str, tool_args: dict) -> str:
         """执行工具调用"""
-        # 清理 action_input
-        action_input = action_input.strip() if action_input else ""
-        if action_input.lower() in ["无", "none", "null", ""]:
-            action_input = ""
-
-        if action == "search_knowledge_base":
-            result = self._search_knowledge_base(action_input)
-            return f"观察: {result}"
-        elif action == "web_search":
-            result = web_search.invoke(action_input)
-            return f"观察: {result}"
-        elif action == "get_current_time":
-            # 无参数工具，用空字典调用
-            result = get_current_time.invoke({})
-            return f"观察: {result}"
-        return f"观察: 未知工具 '{action}'"
+        for t in self.tools:
+            if t.name == tool_name:
+                try:
+                    result = t.invoke(tool_args)
+                    return str(result)
+                except Exception as e:
+                    return f"工具执行失败: {str(e)}"
+        return f"未知工具: {tool_name}"
 
     def invoke(self, query: str, history: str = "") -> str:
-        """调用 ReAct Agent
+        """调用 Agent
         Args:
             query: 用户问题
             history: 对话历史（可选）
         """
-        scratchpad = ""
+        from langchain_core.messages import ToolMessage
 
-        for _ in range(self.max_iterations):
+        # 构建对话上下文
+        if history:
+            system_msg = f"""你是一个智能问答助手。当用户问时间、日期时，必须使用 get_current_time 工具获取时间。
+当用户问知识库相关问题时，必须使用 search_knowledge_base 工具搜索知识库。
+
+【历史对话】
+{history}
+
+你可以直接回答问题，如果需要使用工具，请调用相关工具。"""
+        else:
+            system_msg = """你是一个智能问答助手。当用户问时间、日期时，必须使用 get_current_time 工具获取时间。
+当用户问知识库相关问题时，必须使用 search_knowledge_base 工具搜索知识库。
+
+你可以直接回答问题，如果需要使用工具，请调用相关工具。"""
+
+        # 第一次调用，让模型决定是否需要使用工具
+        messages = [
+            ("system", system_msg),
+            ("user", query)
+        ]
+
+        for i in range(self.max_iterations):
             try:
-                prompt_input = {
-                    "input": query,
-                    "agent_scratchpad": scratchpad if scratchpad else "",
-                    "conversation_history": history if history else "（无历史对话）"
-                }
-                prompt = self.prompt_template.invoke(prompt_input)
-                llm_response = self.chat_model.invoke(prompt).content
+                # 调用 LLM（已绑定工具）
+                response = self.llm_with_tools.invoke(messages)
 
-                parsed = self._parse_response(llm_response)
+                # 检查是否有工具调用
+                if hasattr(response, 'tool_calls') and response.tool_calls:
+                    # 将 AI 响应添加到消息
+                    messages.append(response)
 
-                if parsed["done"]:
-                    return parsed["final_answer"]
+                    # 执行工具调用
+                    for tool_call in response.tool_calls:
+                        tool_name = tool_call['name']
+                        tool_args = tool_call.get('args', {})
+                        tool_call_id = tool_call.get('id', '')
 
-                action = parsed["action"]
-                action_input = parsed["action_input"]
+                        # 执行工具
+                        tool_result = self._execute_tool(tool_name, tool_args)
 
-                if action and action in TOOL_NAMES:
-                    observation = self._execute_action(action, action_input)
-                    scratchpad += f"\n思考: 分析问题\n行动: {action}\n行动输入: {action_input}\n{observation}\n思考:"
+                        # 添加 ToolMessage，需要 tool_call_id
+                        messages.append(ToolMessage(
+                            content=tool_result,
+                            tool_call_id=tool_call_id
+                        ))
+
+                    # 继续循环，让模型根据工具结果生成最终回答
+                    continue
                 else:
-                    return llm_response
+                    # 没有工具调用，直接返回回答
+                    return response.content
 
             except Exception as e:
+                import traceback
+                traceback.print_exc()
                 return f"执行出错: {str(e)}"
+
+        # 达到最大迭代次数，尝试获取最后一条消息
+        if messages:
+            for msg in reversed(messages):
+                if hasattr(msg, 'content') and msg.content:
+                    return msg.content
+                if isinstance(msg, tuple) and msg[1]:
+                    return msg[1]
 
         return f"已达到最大迭代次数({self.max_iterations})，未能得到答案。"
 
 
 if __name__ == "__main__":
     agent = AgentService()
-    print(agent.invoke("今天天气怎么样"))
+    print(agent.invoke("今天几号？"))

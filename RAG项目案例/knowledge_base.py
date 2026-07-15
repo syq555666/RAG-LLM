@@ -3,7 +3,6 @@ import os
 import config_data as config
 import hashlib
 from langchain_chroma import Chroma
-from langchain_community.embeddings import DashScopeEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from datetime import datetime
 from dotenv import load_dotenv
@@ -11,7 +10,6 @@ from simhash import Simhash
 import json
 
 load_dotenv()
-api_key = os.getenv("DASHSCOPE_API_KEY")
 
 # SimHash 相似度阈值 (0-1，越高越严格)
 SIMHASH_SIMILARITY_THRESHOLD = 0.8
@@ -96,9 +94,16 @@ def is_similar(text: str, existing_hashes: list) -> bool:
 class KnowledgeBaseService(object):
     def __init__(self):
         os.makedirs(config.persist_directory,exist_ok=True)
+
+        # 使用阿里云的 Embedding
+        from langchain_community.embeddings import DashScopeEmbeddings
+        embedding = DashScopeEmbeddings(
+            model=config.embedding_model_name
+        )
+
         self.chroma = Chroma(
             collection_name=config.collection_name,
-            embedding_function=DashScopeEmbeddings(model=config.embedding_model_name),
+            embedding_function=embedding,
             persist_directory=config.persist_directory,
         )
         self.spliter = RecursiveCharacterTextSplitter(
