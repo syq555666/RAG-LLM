@@ -58,8 +58,21 @@ streamlit run RAG项目案例/app_qa.py
 
 | 工具 | 功能 | 使用场景 |
 |------|------|----------|
-| search_knowledge_base | 知识库搜索 | 产品信息、公司资料等 |
-| web_search | 网络搜索 | 实时新闻、天气等 |
+| search_knowledge_base | 知识库搜索 | 产品信息、公司资料、技术文档等 |
+| web_search | 网络搜索 | 实时新闻、天气、股价等 |
+| get_current_time | 获取时间 | 日期、时间相关问题 |
+
+### 可扩展工具
+
+以下工具可根据需求自行添加：
+
+| 工具 | 功能 | 使用场景 |
+|------|------|----------|
+| read_file | 文件读取 | 读取本地文件内容 |
+| calculator | 数学计算 | 数学运算、折扣计算 |
+| get_weather | 天气查询 | 查询城市天气 |
+| fetch_url | URL抓取 | 读取网页内容 |
+| search_history | 历史搜索 | 搜索历史对话记录 |
 
 
 ## 项目结构
@@ -106,3 +119,74 @@ RAG-LLM/
 - **UI**: Streamlit
 - **Framework**: LangChain
 - **搜索**: DuckDuckGo (ddgs)
+
+## 使用示例
+
+### 1. 知识库问答
+上传文档后，可以直接询问文档相关问题：
+```
+用户: 我们的退换货政策是什么？
+Agent: 根据知识库中的文档，您的退换货政策是...
+```
+
+### 2. 网络搜索
+询问实时信息时，Agent 会自动调用搜索工具：
+```
+用户: 今天北京天气怎么样？
+Agent: (调用 web_search 后) 今天北京天气晴朗，气温 20-28°C...
+```
+
+### 3. 混合检索
+结合知识库和网络搜索：
+```
+用户: 你们公司和竞争对手相比有什么优势？
+Agent: (先搜索知识库，再搜索网络) 根据我的了解...
+```
+
+## 常见问题
+
+### Q1: 如何更新知识库？
+在 Web 界面中点击"上传文件"按钮，选择 txt、md、csv、json 格式的文档上传。
+
+### Q2: 为什么搜索不到相关内容？
+- 检查文档是否已成功上传
+- 尝试调整 `score_threshold` 参数（当前默认 0.7）
+- 检查文档内容是否与问题相关
+
+### Q3: API 调用失败怎么办？
+- 确认 `.env` 文件中的 `DASHSCOPE_API_KEY` 正确
+- 检查网络连接
+- 查看控制台错误日志
+
+### Q4: 如何清空所有数据？
+删除项目根目录下的 `chroma_db`、`md5.text`、`simhash_index.json` 文件即可。
+
+## 截图
+
+> 📷 项目界面截图（请替换为实际截图）
+
+![Demo](./docs/demo.png)
+
+## 许可证
+
+MIT License
+
+Copyright (c) 2024 RAG-LLM
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
