@@ -71,7 +71,7 @@ with st.sidebar:
         kb_service = get_kb_service()
         unique_files = len(get_file_list(kb_service))
         st.info(f"📊 当前知识库包含 {unique_files} 个文件")
-    except Exception as e:
+    except Exception:
         st.info("📊 当前知识库: 0 个文件")
 
     # 上传成功后需要清空文件选择
@@ -142,11 +142,11 @@ with st.sidebar:
                             kb_service.delete_by_filename(filename)
                             st.session_state['show_delete_msg'] = filename
                             st.rerun()
-                        except Exception as e:
-                            st.error(f"❌ 删除失败: {str(e)}")
+                        except Exception:
+                            st.error("❌ 删除失败")
         else:
             st.caption("暂无文件")
-    except Exception as e:
+    except Exception:
         st.caption("无法加载文件列表")
 
     # 底部提示
@@ -161,16 +161,32 @@ if "rag" not in st.session_state:
     kb_service = get_kb_service()
     st.session_state["rag"] = AgentService(vector_store=kb_service.chroma)
 
+# 显示所有历史消息
 for message in st.session_state["message"]:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-prompt = st.chat_input("💬 输入你的问题，我会从知识库中寻找答案...", disabled=False)
+# 检查是否有待处理的问题（追问建议点击后）
+if "pending_question" not in st.session_state:
+    st.session_state["pending_question"] = None
+
+# 获取用户输入或待处理问题
+# 如果有待处理的问题，禁用输入框
+has_pending = st.session_state.get("pending_question") is not None
+prompt = st.chat_input("💬 输入你的问题，我会从知识库中寻找答案...", disabled=has_pending)
+
+# 如果有待处理的问题，优先处理
+if has_pending:
+    prompt = st.session_state["pending_question"]
+    st.session_state["pending_question"] = None
 
 if prompt:
-    with st.chat_message("user"):
-        st.markdown(prompt)
-    st.session_state["message"].append({"role": "user", "content": prompt})
+    # 检查消息是否已存在（避免重复添加）
+    message_contents = {m["content"] for m in st.session_state["message"]}
+    if prompt not in message_contents:
+        with st.chat_message("user"):
+            st.markdown(prompt)
+        st.session_state["message"].append({"role": "user", "content": prompt})
 
     # Agent 检索（流式输出）
     try:
@@ -199,20 +215,5 @@ if prompt:
         # 保存到历史记录（复用同一个 history 实例）
         history.add_messages([HumanMessage(content=prompt), AIMessage(content=full_response)])
 
-        # 生成追问建议
-        suggestions = st.session_state["rag"].generate_suggestions(prompt, full_response, history_str)
-        if suggestions:
-            st.markdown("**💡 你可能还想问：**")
-            cols = st.columns(len(suggestions))
-            for i, suggestion in enumerate(suggestions):
-                with cols[i]:
-                    if st.button(suggestion, key=f"suggest_{len(st.session_state['message'])}_{i}"):
-                        st.session_state["suggestion"] = suggestion
-
     except Exception as e:
         st.error(f"❌ 检索失败: {str(e)}")
-
-# 处理追问建议
-if "suggestion" in st.session_state:
-    suggestion = st.session_state.pop("suggestion")
-    st.rerun()

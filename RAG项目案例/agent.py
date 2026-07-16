@@ -348,10 +348,7 @@ class AgentService:
             ("user", query)
         ]
 
-        # 收集所有需要执行的工具调用
-        all_tool_results = []
-
-        for i in range(self.max_iterations):
+        for _ in range(self.max_iterations):
             try:
                 # 调用 LLM
                 response = self.llm_with_tools.invoke(messages)
@@ -382,8 +379,6 @@ class AgentService:
                             content=tool_result,
                             tool_call_id=tool_call_id
                         ))
-
-                        all_tool_results.append((tool_name, tool_result))
 
                     # 继续循环
                     continue
