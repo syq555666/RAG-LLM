@@ -172,23 +172,47 @@ if prompt:
         st.markdown(prompt)
     st.session_state["message"].append({"role": "user", "content": prompt})
 
-    # Agent 检索
-    with st.spinner("🤔 AI 正在思考中..."):
-        try:
-            # 获取 session_id 并创建历史记录实例（复用）
-            session_id = get_session_id()
-            history = SummarizingChatMessageHistory(session_id, HISTORY_STORAGE_PATH)
-            history_str = history.get_context_for_llm()
+    # Agent 检索（流式输出）
+    try:
+        # 获取 session_id 并创建历史记录实例（复用）
+        session_id = get_session_id()
+        history = SummarizingChatMessageHistory(session_id, HISTORY_STORAGE_PATH)
+        history_str = history.get_context_for_llm()
 
-            # 调用 Agent，传入历史
-            response = st.session_state["rag"].invoke(prompt, history=history_str)
+        # 创建空的消息容器用于流式显示
+        with st.chat_message("assistant"):
+            message_placeholder = st.empty()
+            full_response = ""
 
-            with st.chat_message("assistant"):
-                st.markdown(response)
+            # 使用简化版 stream（先执行工具，再流式输出）
+            for chunk in st.session_state["rag"].stream(prompt, history=history_str):
+                full_response += chunk
+                message_placeholder.markdown(full_response + "▌")
+                time.sleep(0.01)
 
-            st.session_state["message"].append({"role": "assistant", "content": response})
+            # 移除光标
+            message_placeholder.markdown(full_response)
 
-            # 保存到历史记录（复用同一个 history 实例）
-            history.add_messages([HumanMessage(content=prompt), AIMessage(content=response)])
-        except Exception as e:
-            st.error(f"❌ 检索失败: {str(e)}")
+        # 保存回答到历史记录
+        st.session_state["message"].append({"role": "assistant", "content": full_response})
+
+        # 保存到历史记录（复用同一个 history 实例）
+        history.add_messages([HumanMessage(content=prompt), AIMessage(content=full_response)])
+
+        # 生成追问建议
+        suggestions = st.session_state["rag"].generate_suggestions(prompt, full_response, history_str)
+        if suggestions:
+            st.markdown("**💡 你可能还想问：**")
+            cols = st.columns(len(suggestions))
+            for i, suggestion in enumerate(suggestions):
+                with cols[i]:
+                    if st.button(suggestion, key=f"suggest_{len(st.session_state['message'])}_{i}"):
+                        st.session_state["suggestion"] = suggestion
+
+    except Exception as e:
+        st.error(f"❌ 检索失败: {str(e)}")
+
+# 处理追问建议
+if "suggestion" in st.session_state:
+    suggestion = st.session_state.pop("suggestion")
+    st.rerun()

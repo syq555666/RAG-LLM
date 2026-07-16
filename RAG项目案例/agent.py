@@ -200,8 +200,21 @@ class AgentService:
 
     def _execute_tool(self, tool_name: str, tool_args: dict, retry: int = None) -> str:
         """执行工具调用（带重试机制）"""
+        import json
+
         if retry is None:
             retry = self.max_retries
+
+        # 处理参数格式：可能是 dict 或 JSON 字符串
+        if isinstance(tool_args, str):
+            try:
+                tool_args = json.loads(tool_args)
+            except:
+                tool_args = {}
+
+        # 确保 tool_args 是字典
+        if not isinstance(tool_args, dict):
+            tool_args = {}
 
         for attempt in range(retry):
             for t in self.tools:
@@ -314,6 +327,126 @@ class AgentService:
         """清空缓存"""
         self._cache.clear()
         logger.info("缓存已清空")
+
+    def stream(self, query: str, history: str = "", tool_callback=None):
+        """流式调用 Agent（生成器）
+        先执行工具调用，最后流式输出结果
+        Args:
+            query: 用户问题
+            history: 对话历史（可选）
+            tool_callback: 工具执行回调函数
+        Yields:
+            str: 流式输出的文本片段
+        """
+        from langchain_core.messages import ToolMessage
+
+        # 构建对话上下文
+        system_msg = self._build_system_prompt(history)
+
+        messages = [
+            ("system", system_msg),
+            ("user", query)
+        ]
+
+        # 收集所有需要执行的工具调用
+        all_tool_results = []
+
+        for i in range(self.max_iterations):
+            try:
+                # 调用 LLM
+                response = self.llm_with_tools.invoke(messages)
+
+                # 检查是否有工具调用
+                if hasattr(response, 'tool_calls') and response.tool_calls:
+                    # 将 AI 响应添加到消息
+                    messages.append(response)
+
+                    # 执行工具调用
+                    for tool_call in response.tool_calls:
+                        tool_name = tool_call['name']
+                        tool_args = tool_call.get('args', {})
+                        tool_call_id = tool_call.get('id', '')
+
+                        # 通知即将执行工具
+                        if tool_callback:
+                            tool_callback(tool_name, tool_args)
+
+                        tool_result = self._execute_tool(tool_name, tool_args)
+
+                        # 工具执行完成
+                        if tool_callback:
+                            tool_callback(tool_name, tool_args, result=tool_result)
+
+                        # 添加 ToolMessage
+                        messages.append(ToolMessage(
+                            content=tool_result,
+                            tool_call_id=tool_call_id
+                        ))
+
+                        all_tool_results.append((tool_name, tool_result))
+
+                    # 继续循环
+                    continue
+                else:
+                    # 没有工具调用，获取最终回答
+                    final_response = response.content
+                    break
+
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                logger.error(f"Agent 流式执行出错: {e}")
+                yield f"执行出错: {str(e)}"
+                return
+
+        else:
+            # 达到最大迭代次数
+            yield f"已达到最大迭代次数({self.max_iterations})，未能得到答案。"
+            return
+
+        # 流式输出最终回答
+        for char in final_response:
+            yield char
+
+    def generate_suggestions(self, query: str, response: str, history: str = "") -> list:
+        """生成追问建议
+        Args:
+            query: 用户问题
+            response: AI 回答
+            history: 对话历史
+        Returns:
+            list: 3 个建议问题
+        """
+        context = f"\n历史对话：{history}" if history else ""
+        suggestion_prompt = f"""基于以下对话，生成 3 个用户可能会追问的相关问题。
+
+用户问题：{query}
+AI 回答：{response}{context}
+
+要求：
+1. 生成 3 个简洁的相关问题
+2. 每个问题不超过 20 个字
+3. 只输出问题，不要有其他内容
+4. 用中文"""
+
+        try:
+            result = self.chat_model.invoke(suggestion_prompt)
+            suggestions = result.content.strip().split('\n')
+
+            # 清理建议，提取问题
+            cleaned = []
+            for s in suggestions[:3]:
+                s = s.strip()
+                # 去除可能的序号
+                s = s.lstrip('123456789.、) ')
+                if s and len(s) <= 20:
+                    cleaned.append(s)
+
+            return cleaned[:3] if cleaned else ["谢谢", "还有其他问题吗", "可以详细说说吗"]
+
+        except Exception as e:
+            logger.warning(f"生成追问建议失败: {e}")
+            return ["谢谢", "还有其他问题吗", "可以详细说说吗"]
 
 
 if __name__ == "__main__":
