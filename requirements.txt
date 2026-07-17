@@ -1,18 +1,32 @@
-# RAG-LLM 依赖
+# RAG-LLM 后端依赖
 
-dashscope>=1.25.16
+# LLM & Agent
 langchain>=1.2.15
 langchain-chroma>=1.1.0
 langchain-classic>=1.0.3
 langchain-community>=0.4.1
 langchain-core>=1.2.28
 langchain-text-splitters>=1.1.1
+langchain-deepseek>=0.1.0
+
+# Web 框架
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+python-multipart>=0.0.9
+
+# 向量 & 检索
+chromadb>=0.6.0
+dashscope>=1.25.16
+rank-bm25>=0.2.2
+
+# 去重
+simhash>=2.1.2
+
+# 数据处理
 numpy>=2.2.6
 pandas>=2.3.3
-python-dotenv>=1.2.2
-rank-bm25>=0.2.2
-simhash>=2.1.2
-streamlit>=1.56.0
 pypdf>=5.1.0
-chromadb>=0.6.0
+
+# 工具
+python-dotenv>=1.2.2
 protobuf<4.0.0

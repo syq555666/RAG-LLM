@@ -1,13 +1,15 @@
-#知识库
+# 知识库服务
 import os
-import config_data as config
 import hashlib
+import json
+import threading
 from langchain_chroma import Chroma
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from datetime import datetime
 from dotenv import load_dotenv
 from simhash import Simhash
-import json
+
+import config_data as config
 
 load_dotenv()
 
@@ -16,27 +18,26 @@ SIMHASH_SIMILARITY_THRESHOLD = 0.8
 
 
 def check_md5(md5_str: str):
-    #检查传入的md5字符串是否已经被处理过了
+    """检查传入的md5字符串是否已经被处理过了"""
     if not os.path.exists(config.md5_path):
-        open(config.md5_path, 'w',encoding='utf-8').close()
+        open(config.md5_path, 'w', encoding='utf-8').close()
         return False
     else:
-        for line in open(config.md5_path, 'r',encoding='utf-8').readlines():
-            line = line.strip()     #处理字符串前后的空格和回车
-            if line ==md5_str:
+        for line in open(config.md5_path, 'r', encoding='utf-8').readlines():
+            line = line.strip()
+            if line == md5_str:
                 return True
         return False
 
 
-
-def save_md5(md5_str : str):
-    #将传入的md5字符串，记录到文件内保存
-    with open(config.md5_path,'a',encoding='utf-8') as f:
+def save_md5(md5_str: str):
+    """将传入的md5字符串，记录到文件内保存"""
+    with open(config.md5_path, 'a', encoding='utf-8') as f:
         f.write(md5_str + '\n')
 
 
 def get_string_md5(input_str: str, encoding='utf-8'):
-    #将传入的字符串转为md5字符串
+    """将传入的字符串转为md5字符串"""
     str_bytes = input_str.encode(encoding=encoding)
     md5_obj = hashlib.md5()
     md5_obj.update(str_bytes)
@@ -63,7 +64,6 @@ def save_simhash_index(index):
 
 def compute_similarity(hash1, hash2):
     """计算两个 SimHash 的相似度 (基于汉明距离)"""
-    # 获取 Simhash 对象的 value (整数)
     if hasattr(hash1, 'value'):
         h1 = hash1.value
     else:
@@ -73,7 +73,7 @@ def compute_similarity(hash1, hash2):
     else:
         h2 = hash2
     distance = (h1 ^ h2).bit_count()  # 汉明距离
-    similarity = 1 - (distance / 64.0)       # 64位 SimHash
+    similarity = 1 - (distance / 64.0)  # 64位 SimHash
     return similarity
 
 
@@ -84,7 +84,6 @@ def is_similar(text: str, existing_hashes: list) -> bool:
 
     current_hash = Simhash(text)
     for existing_hash in existing_hashes:
-        # existing_hashes 存储的是整数
         existing_val = Simhash(existing_hash) if isinstance(existing_hash, str) else existing_hash
         if compute_similarity(current_hash, existing_val) >= SIMHASH_SIMILARITY_THRESHOLD:
             return True
@@ -93,7 +92,7 @@ def is_similar(text: str, existing_hashes: list) -> bool:
 
 class KnowledgeBaseService(object):
     def __init__(self):
-        os.makedirs(config.persist_directory,exist_ok=True)
+        os.makedirs(config.persist_directory, exist_ok=True)
 
         # 使用阿里云的 Embedding
         from langchain_community.embeddings import DashScopeEmbeddings
@@ -115,8 +114,16 @@ class KnowledgeBaseService(object):
         # 加载已有的 SimHash 索引
         self.simhash_index = load_simhash_index()
 
+        # 线程安全锁 — Chroma 不支持并发写
+        self._write_lock = threading.Lock()
+
     def upload_by_str(self, data, filename):
-        # 将传入的字符串，进行向量化，存入向量数据库中
+        """将传入的字符串进行向量化，存入向量数据库中（线程安全）"""
+        with self._write_lock:
+            return self._upload_by_str_unsafe(data, filename)
+
+    def _upload_by_str_unsafe(self, data, filename):
+        """内部实现：不安全的写入操作"""
         # 先检查 MD5 (精确去重)
         md5_hex = get_string_md5(data)
         if check_md5(md5_hex):
@@ -138,20 +145,17 @@ class KnowledgeBaseService(object):
                 skipped_chunks.append(chunk)
             else:
                 new_chunks.append(chunk)
-                # 将新 chunk 的 SimHash 加入索引
                 self.simhash_index.append(Simhash(chunk).value)
-                # 立即保存 SimHash 索引，防止崩溃丢失
                 save_simhash_index(self.simhash_index)
 
         if not new_chunks:
-            # 所有 chunk 都是相似的，记录 MD5 但不新增
             save_md5(md5_hex)
             return f"【跳过】，{len(skipped_chunks)} 个段落与已有内容相似"
 
         metadata = {
             "source": filename,
             "create_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "operator":"小王",
+            "operator": "小王",
         }
 
         self.chroma.add_texts(
@@ -159,34 +163,33 @@ class KnowledgeBaseService(object):
             metadatas=[metadata for _ in new_chunks],
         )
 
-        # 保存 MD5（SimHash 已在循环中实时保存）
         save_md5(md5_hex)
 
-        # 返回结果包含跳过数量
         skipped_info = f"，跳过了 {len(skipped_chunks)} 个相似段落" if skipped_chunks else ""
         return f"【成功】，{len(new_chunks)} 个新段落已入库{skipped_info}"
 
     def delete_by_filename(self, filename: str):
-        """根据文件名删除所有关联的 chunk"""
-        self.chroma.delete(where={"source": filename})
+        """根据文件名删除所有关联的 chunk（线程安全）"""
+        with self._write_lock:
+            self.chroma.delete(where={"source": filename})
 
-        # 清理 md5 索引文件（删除后重新上传时不会被误判为已存在）
-        if os.path.exists(config.md5_path):
-            with open(config.md5_path, 'w', encoding='utf-8') as f:
-                f.write('')
+            # 清理 md5 索引文件
+            if os.path.exists(config.md5_path):
+                with open(config.md5_path, 'w', encoding='utf-8') as f:
+                    f.write('')
 
-        # 清理 simhash 索引文件
-        if os.path.exists(config.simhash_path):
-            with open(config.simhash_path, 'w', encoding='utf-8') as f:
-                f.write('[]')
+            # 清理 simhash 索引文件
+            if os.path.exists(config.simhash_path):
+                with open(config.simhash_path, 'w', encoding='utf-8') as f:
+                    f.write('[]')
 
-        # 清空内存中的 simhash 索引
-        self.simhash_index = []
+            self.simhash_index = []
 
-
-if __name__ == '__main__':
-    service = KnowledgeBaseService()
-    # 测试 SimHash 相似检测
-    print("测试 SimHash 去重:")
-    print(f"'羽绒服要手洗' vs '羽绒服要干洗': {compute_similarity(Simhash('羽绒服要手洗'), Simhash('羽绒服要干洗')):.2f}")
-    print(f"'羽绒服要手洗' vs '羽绒服要手洗': {compute_similarity(Simhash('羽绒服要手洗'), Simhash('羽绒服要手洗')):.2f}")
+    def get_file_list(self) -> set:
+        """获取知识库中的文件列表"""
+        try:
+            collection = self.chroma.get()
+            metadatas = collection.get('metadatas', []) if collection else []
+            return set(m.get('source') for m in metadatas if m and m.get('source'))
+        except Exception:
+            return set()

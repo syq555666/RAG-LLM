@@ -39,3 +39,14 @@ chat_history/
 # 索引文件
 md5.text
 simhash_index.json
+
+# Node / Frontend
+node_modules/
+frontend/node_modules/
+frontend/dist/
+
+# 后端运行时数据
+backend/data/chroma_db/
+backend/data/chat_history/
+backend/data/md5.text
+backend/data/simhash_index.json

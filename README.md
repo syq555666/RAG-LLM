@@ -1,192 +1,163 @@
 # RAG-LLM 智能客服系统
 
-基于 LangChain + 通义千问 + Chroma 向量数据库的 Agent 应用，支持文档上传、知识库检索、网络搜索。
+基于 **LangChain + DeepSeek + Chroma** 的 RAG 智能客服，支持知识库检索、工具调用、流式对话。前后端分离架构。
 
-## 功能特性
+## 功能
 
-- 📚 **知识库管理** - 支持 txt、md、csv、json 格式文档批量上传（自动去重）
-- 🗑️ **文件管理** - 支持查看和删除知识库中的文件
-- 🔍 **Agent 智能问答** - 基于 ReAct 模式的 Agent，自动选择工具
-- 🔎 **网络搜索** - 实时搜索互联网获取最新信息
-- 📝 **会话历史** - 基于文件的历史记录存储，包含对话摘要
-- 🔄 **去重机制** - MD5 精确去重 + SimHash 近似去重
+- 📚 **知识库管理** — 上传/删除文档，自动分块入库（txt、md、csv、json、pdf）
+- 🔍 **混合检索** — 向量相似度 + BM25 关键词 + RRF 融合，兼顾语义和关键词匹配
+- 🔄 **智能去重** — MD5 精确去重 + SimHash 近似去重
+- 🤖 **Agent 对话** — DeepSeek 驱动，自动选择和调用工具
+- 🌐 **网络搜索** — DuckDuckGo 实时搜索互联网信息
+- ⚡ **SSE 流式输出** — 逐字返回，实时显示工具调用过程
+- 💬 **对话管理** — 多会话切换，历史持久化 + LLM 自动摘要
+- 🎨 **现代 UI** — React 19 + TypeScript，ChatGPT 风格界面
 
-## 环境要求
+## 架构
+
+```
+frontend (React 19 + Vite)     backend (FastAPI + LangChain)     外部服务
+    :5173                           :8000
+    ┌──────────┐    SSE/HTTP     ┌──────────────┐    API Call    ┌──────────┐
+    │ Chat UI  │ ◄──────────────►│ AgentService │ ◄─────────────►│ DeepSeek │
+    │ KB Mgmt  │                 │   ├─ Retriever│               │ DashScope│
+    │ Sessions │                 │   ├─ Tools    │               │ DuckDuckGo│
+    └──────────┘                 │   └─ Chroma   │               └──────────┘
+                                 └──────────────┘
+```
+
+## 快速开始
+
+### 环境要求
 
 - Python 3.10+
-- Anaconda (推荐)
+- Node.js 18+ / npm 9+
 
-## 安装
+### 1. 安装后端依赖
 
 ```bash
-# 创建并激活 conda 环境
-conda create -n rag python=3.10
-conda activate rag
-
-# 安装依赖
 pip install -r requirements.txt
-
-# 安装搜索依赖
-pip install ddgs
 ```
 
-## 配置
+### 2. 配置环境变量
 
-1. 复制环境变量模板：
-```bash
-cp .env.example .env
+编辑 `backend/.env`，确保以下配置正确：
+
+```env
+DEEPSEEK_API_KEY=你的key          # DeepSeek API Key
+DASHSCOPE_API_KEY=你的key         # 阿里云 DashScope (Embedding)
 ```
 
-2. 编辑 `.env`，填入你的通义千问 API Key：
-```
-DASHSCOPE_API_KEY=your_api_key_here
-```
-
-获取 API Key: [阿里云 DashScope](https://dashscope.console.aliyun.com/)
-
-## 运行
+### 3. 安装前端依赖
 
 ```bash
-streamlit run RAG项目案例/app_qa.py
+cd frontend && npm install
 ```
 
-浏览器访问 http://localhost:8501
+### 4. 启动
 
-## Agent 功能
+**终端 1 — 后端 :8000**
 
-系统基于 ReAct 模式实现 Agent，具备以下能力：
+```bash
+cd backend
+uvicorn main:app --reload --port 8000
+```
 
-| 工具 | 功能 | 使用场景 |
-|------|------|----------|
-| search_knowledge_base | 知识库搜索 | 产品信息、公司资料、技术文档等 |
-| web_search | 网络搜索 | 实时新闻、天气、股价等 |
-| get_current_time | 获取时间 | 日期、时间相关问题 |
+**终端 2 — 前端 :5173**
 
-### 可扩展工具
+```bash
+cd frontend
+npm run dev
+```
 
-以下工具可根据需求自行添加：
+浏览器访问 **http://localhost:5173**
 
-| 工具 | 功能 | 使用场景 |
-|------|------|----------|
-| read_file | 文件读取 | 读取本地文件内容 |
-| calculator | 数学计算 | 数学运算、折扣计算 |
-| get_weather | 天气查询 | 查询城市天气 |
-| fetch_url | URL抓取 | 读取网页内容 |
-| search_history | 历史搜索 | 搜索历史对话记录 |
-
+> API 文档：http://localhost:8000/docs
 
 ## 项目结构
 
 ```
 RAG-LLM/
-├── README.md                 # 项目说明文档
-├── requirements.txt          # Python 依赖
-├── .env.example              # 环境变量模板
-└── RAG项目案例/
-    ├── app_qa.py              # Streamlit Web 界面
-    ├── agent.py               # Agent 核心服务 (ReAct)
-    ├── rag.py                 # RAG 核心服务
-    ├── knowledge_base.py      # 知识库管理
-    ├── vector_stores.py       # 向量存储 & 混合检索
-    ├── file_history_store.py  # 会话历史存储
-    └── config_data.py         # 配置文件
-
-# 数据存储
-├── chroma_db/               # Chroma 向量数据库
-├── md5.text                 # MD5 精确去重索引
-├── simhash_index.json       # SimHash 近似去重索引
-└── chat_history/            # 会话历史记录
+├── backend/
+│   ├── main.py                          # FastAPI 入口
+│   ├── config_data.py                   # 全局配置
+│   ├── api/
+│   │   ├── deps.py                      # 依赖注入（服务单例）
+│   │   ├── chat.py                      # SSE 流式对话 + 追问建议
+│   │   ├── knowledge.py                 # 知识库文件 CRUD
+│   │   ├── sessions.py                  # 会话管理
+│   │   └── health.py                    # 健康检查
+│   ├── services/
+│   │   ├── agent_service.py             # Agent（ReAct + 工具调用）
+│   │   ├── knowledge_base_service.py    # 知识库（去重 + 入库）
+│   │   ├── hybrid_retriever.py          # 混合检索（向量 + BM25 + RRF）
+│   │   └── history_store.py             # 对话历史（JSON + LLM 摘要）
+│   ├── schemas/                         # Pydantic 请求/响应模型
+│   └── utils/
+│       └── file_reader.py               # 多格式文件解析
+├── frontend/
+│   └── src/
+│       ├── App.tsx                       # 根布局
+│       ├── components/
+│       │   ├── chat/                     # ChatContainer、MessageList、ChatInput …
+│       │   ├── knowledge/                # FileUploader、FileList …
+│       │   ├── layout/Sidebar.tsx        # 侧边栏
+│       │   └── common/                   # Modal、Spinner
+│       ├── hooks/                        # useChatStream、useSession …
+│       ├── store/                        # Zustand（chatStore、kbStore）
+│       ├── api/                          # HTTP 客户端 + SSE 解析
+│       └── types/                        # TypeScript 类型
+└── requirements.txt                      # Python 依赖
 ```
 
-## 配置说明
+## API 概览
 
-可在 `config_data.py` 或环境变量中修改：
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `GET` | `/api/health` | 健康检查 + 知识库状态 |
+| `POST` | `/api/chat/stream` | SSE 流式对话 |
+| `POST` | `/api/chat/suggestions` | 追问建议 |
+| `GET` | `/api/knowledge/files` | 知识库文件列表 |
+| `POST` | `/api/knowledge/upload` | 批量上传文件 |
+| `DELETE` | `/api/knowledge/files/{name}` | 删除文件 |
+| `GET` | `/api/sessions` | 会话列表 |
+| `POST` | `/api/sessions` | 创建会话 |
+| `GET` | `/api/sessions/{id}/history` | 会话历史 |
+| `DELETE` | `/api/sessions/{id}` | 删除会话 |
 
-| 参数 | 环境变量 | 默认值 | 说明 |
-|------|----------|--------|------|
-| embedding_model | EMBEDDING_MODEL_NAME | text-embedding-v4 | embedding 模型 |
-| chat_model | CHAT_MODEL_NAME | qwen3-max | 对话模型 |
-| chunk_size | - | 1000 | 文本分块大小 |
-| chunk_overlap | - | 100 | 分块重叠长度 |
-| top_k | - | 3 | 检索返回数量 |
-| score_threshold | - | 0.7 | 向量相似度阈值 |
+## Agent 工具
+
+| 工具 | 触发条件 |
+|------|----------|
+| `search_knowledge_base` | 用户询问知识库相关内容 |
+| `web_search` | 用户询问实时新闻、天气、股价等 |
+| `get_current_time` | 用户询问日期或时间 |
+
+## 可配置项
+
+在 `backend/config_data.py` 中调整：
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `chunk_size` | 1000 | 文本分块大小 |
+| `chunk_overlap` | 100 | 分块重叠长度 |
+| `top_k` | 3 | 检索返回数量 |
+| `score_threshold` | 0.7 | 向量相似度阈值 |
+| `HISTORY_SUMMARY_THRESHOLD` | 10 | 触发对话摘要的轮数 |
 
 ## 技术栈
 
-### 前端
-- **UI 框架**: Streamlit
-- **前端语言**: Python
+| 层 | 技术 |
+|----|------|
+| LLM | DeepSeek (`deepseek-chat`) via langchain-deepseek |
+| Embedding | 阿里云 DashScope (`text-embedding-v4`) |
+| 向量库 | Chroma（本地持久化） |
+| 后端框架 | FastAPI + Uvicorn |
+| 前端框架 | React 19 + TypeScript 6 |
+| 构建工具 | Vite 8 |
+| 状态管理 | Zustand 5 |
+| Markdown 渲染 | react-markdown + remark-gfm |
 
-### 后端
-- **LLM**: 通义千问 (Qwen)
-- **Embedding**: DashScope Text Embedding
-- **向量数据库**: Chroma
-- **开发框架**: LangChain
-- **搜索**: DuckDuckGo (ddgs)
-- **Python**: 3.10+
+## License
 
-## 使用示例
-
-### 1. 知识库问答
-上传文档后，可以直接询问文档相关问题：
-```
-用户: 我们的退换货政策是什么？
-Agent: 根据知识库中的文档，您的退换货政策是...
-```
-
-### 2. 网络搜索
-询问实时信息时，Agent 会自动调用搜索工具：
-```
-用户: 今天北京天气怎么样？
-Agent: (调用 web_search 后) 今天北京天气晴朗，气温 20-28°C...
-```
-
-### 3. 混合检索
-结合知识库和网络搜索：
-```
-用户: 你们公司和竞争对手相比有什么优势？
-Agent: (先搜索知识库，再搜索网络) 根据我的了解...
-```
-
-## 常见问题
-
-### Q1: 如何更新知识库？
-在 Web 界面中点击"上传文件"按钮，选择 txt、md、csv、json 格式的文档上传。
-
-### Q2: 为什么搜索不到相关内容？
-- 检查文档是否已成功上传
-- 尝试调整 `score_threshold` 参数（当前默认 0.7）
-- 检查文档内容是否与问题相关
-
-### Q3: API 调用失败怎么办？
-- 确认 `.env` 文件中的 `DASHSCOPE_API_KEY` 正确
-- 检查网络连接
-- 查看控制台错误日志
-
-### Q4: 如何清空所有数据？
-删除项目根目录下的 `chroma_db`、`md5.text`、`simhash_index.json` 文件即可。
-
-
-## 许可证
-
-MIT License
-
-Copyright (c) 2024 RAG-LLM
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+MIT

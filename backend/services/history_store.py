@@ -11,10 +11,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# 历史消息数量阈值，超过则触发总结
 HISTORY_SUMMARY_THRESHOLD = 10
 
-# 总结历史的 prompt
 SUMMARY_PROMPT = ChatPromptTemplate.from_messages(
     [
         ("system", """请将以下对话历史总结成简短的摘要，保留关键信息（如用户问题、AI回答要点）。
@@ -27,7 +25,6 @@ SUMMARY_PROMPT = ChatPromptTemplate.from_messages(
     ]
 )
 
-# 类变量：LLM 实例（懒加载）
 _llm = None
 
 
@@ -40,14 +37,16 @@ def _get_llm():
 
 
 class SummarizingChatMessageHistory(BaseChatMessageHistory):
-    def __init__(self, session_id, storage_path):
+    def __init__(self, session_id, storage_path=None):
         self.session_id = session_id
+        # 使用配置中的路径
+        if storage_path is None:
+            storage_path = config.chat_history_path
         self.storage_path = storage_path
         self.summary_file_path = os.path.join(storage_path, f"{session_id}_summary.json")
         self.file_path = os.path.join(storage_path, f"{session_id}.json")
         os.makedirs(storage_path, exist_ok=True)
 
-        # 延迟初始化 LLM
         self._summary_chain = None
 
     def _get_summary_chain(self):
@@ -77,12 +76,10 @@ class SummarizingChatMessageHistory(BaseChatMessageHistory):
         if len(messages) < HISTORY_SUMMARY_THRESHOLD:
             return
 
-        # 检查是否已有摘要，避免重复总结
         existing_summary = self._get_summary()
         if existing_summary:
-            return  # 已有摘要，跳过
+            return
 
-        # 将消息转为文本格式
         history_text = ""
         for msg in messages:
             role = "用户" if msg.type == "human" else "AI"
@@ -92,7 +89,6 @@ class SummarizingChatMessageHistory(BaseChatMessageHistory):
             summary = self._get_summary_chain().invoke({"history": history_text}).strip()
             self._save_summary(summary)
 
-            # 清理旧消息文件，只保留最近的几条（不超过总消息数）
             recent_count = min(6, len(messages))
             recent_messages = messages[-recent_count:]
             new_messages = [message_to_dict(message) for message in recent_messages]
@@ -121,14 +117,13 @@ class SummarizingChatMessageHistory(BaseChatMessageHistory):
         with open(self.file_path, "w", encoding="utf-8") as f:
             json.dump(new_messages, f, ensure_ascii=False)
 
-        # 检查是否需要总结历史
         if len(all_messages) >= HISTORY_SUMMARY_THRESHOLD:
             self._summarize_and_truncate(all_messages)
 
     def get_context_for_llm(self) -> str:
         """获取传递给 LLM 的上下文（包括摘要 + 最近消息）"""
         summary = self._get_summary()
-        recent_messages = self.messages[-6:]  # 只保留最近6条
+        recent_messages = self.messages[-6:]
 
         context = ""
         if summary:

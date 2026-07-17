@@ -18,7 +18,7 @@ class HybridRetriever:
         self.bm25 = None
         self.chunk_texts = []
         self._index_built = False
-        self.bm25_threshold = bm25_threshold  # BM25 最小分数阈值
+        self.bm25_threshold = bm25_threshold
 
     def _build_bm25_index(self):
         """从Chroma获取所有文档构建BM25索引"""
@@ -46,7 +46,6 @@ class HybridRetriever:
             query_tokens = query.split()
             bm25_scores = self.bm25.get_scores(query_tokens)
             top_indices = np.argsort(bm25_scores)[-self.k:][::-1]
-            # 使用可配置的阈值过滤
             bm25_docs = [self.chunk_texts[i] for i in top_indices if bm25_scores[i] > self.bm25_threshold]
 
         # RRF融合
