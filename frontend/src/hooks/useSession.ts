@@ -8,28 +8,31 @@ const SESSION_KEY = 'rag_chat_session_id';
 
 export function useSession() {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
-  const store = useChatStore();
+  const sessionId = useChatStore((s) => s.sessionId);
+  const setSessionId = useChatStore((s) => s.setSessionId);
+  const loadHistory = useChatStore((s) => s.loadHistory);
+  const clearMessages = useChatStore((s) => s.clearMessages);
 
   const initSession = useCallback(async () => {
     // 尝试从 localStorage 加载已有 session
-    let sessionId = localStorage.getItem(SESSION_KEY);
+    let sid = localStorage.getItem(SESSION_KEY);
 
-    if (sessionId) {
+    if (sid) {
       try {
-        const history = await getHistory(sessionId);
-        store.setSessionId(sessionId);
-        store.loadHistory(history.messages);
+        const history = await getHistory(sid);
+        setSessionId(sid);
+        loadHistory(history.messages);
       } catch {
         // session 不存在了，创建新的
-        sessionId = null;
+        sid = null;
       }
     }
 
-    if (!sessionId) {
+    if (!sid) {
       const res = await createSession();
-      sessionId = res.session_id;
-      localStorage.setItem(SESSION_KEY, sessionId);
-      store.setSessionId(sessionId);
+      sid = res.session_id;
+      localStorage.setItem(SESSION_KEY, sid);
+      setSessionId(sid);
     }
 
     // 加载会话列表
@@ -39,47 +42,47 @@ export function useSession() {
     } catch {
       // 静默失败
     }
-  }, [store]);
+  }, [setSessionId, loadHistory]);
 
   const newChat = useCallback(async () => {
     const res = await createSession();
     localStorage.setItem(SESSION_KEY, res.session_id);
-    store.setSessionId(res.session_id);
-    store.clearMessages();
+    setSessionId(res.session_id);
+    clearMessages();
     try {
       const data = await listSessions();
       setSessions(data.sessions);
     } catch { /* */ }
-  }, [store]);
+  }, [setSessionId, clearMessages]);
 
   const switchSession = useCallback(
-    async (sessionId: string) => {
-      localStorage.setItem(SESSION_KEY, sessionId);
-      store.setSessionId(sessionId);
+    async (targetId: string) => {
+      localStorage.setItem(SESSION_KEY, targetId);
+      setSessionId(targetId);
       try {
-        const history = await getHistory(sessionId);
-        store.loadHistory(history.messages);
+        const history = await getHistory(targetId);
+        loadHistory(history.messages);
       } catch {
-        store.clearMessages();
+        clearMessages();
       }
     },
-    [store]
+    [setSessionId, loadHistory, clearMessages]
   );
 
   const deleteSession = useCallback(
-    async (sessionId: string) => {
+    async (targetId: string) => {
       try {
-        await apiDeleteSession(sessionId);
+        await apiDeleteSession(targetId);
         toast.success('会话已删除');
-        setSessions((prev) => prev.filter((s) => s.id !== sessionId));
-        if (store.sessionId === sessionId) {
+        setSessions((prev) => prev.filter((s) => s.id !== targetId));
+        if (sessionId === targetId) {
           await newChat();
         }
       } catch {
         toast.error('删除失败');
       }
     },
-    [store, newChat]
+    [sessionId, newChat]
   );
 
   useEffect(() => {
@@ -88,7 +91,7 @@ export function useSession() {
 
   return {
     sessions,
-    sessionId: store.sessionId,
+    sessionId,
     newChat,
     switchSession,
     deleteSession,

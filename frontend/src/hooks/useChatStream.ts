@@ -6,15 +6,21 @@ import type { ToolCallRecord } from '../types/chat';
 
 export function useChatStream() {
   const abortRef = useRef<AbortController | null>(null);
-  const store = useChatStore();
+  const addUserMessage = useChatStore((s) => s.addUserMessage);
+  const startStreaming = useChatStore((s) => s.startStreaming);
+  const setToolCall = useChatStore((s) => s.setToolCall);
+  const appendToken = useChatStore((s) => s.appendToken);
+  const finishStreaming = useChatStore((s) => s.finishStreaming);
+  const setSuggestions = useChatStore((s) => s.setSuggestions);
+  const isLoading = useChatStore((s) => s.isLoading);
 
   const sendMessage = useCallback(
     async (message: string) => {
       const { sessionId, isLoading } = useChatStore.getState();
       if (!sessionId || isLoading) return;
 
-      store.addUserMessage(message);
-      store.startStreaming();
+      addUserMessage(message);
+      startStreaming();
 
       const abortController = new AbortController();
       abortRef.current = abortController;
@@ -28,7 +34,7 @@ export function useChatStream() {
               const td = event.data as { tool_name: string; args: Record<string, unknown> };
               const tc: ToolCallRecord = { toolName: td.tool_name, args: td.args, status: 'running' };
               toolCalls.push(tc);
-              store.setToolCall(tc);
+              setToolCall(tc);
               break;
             }
             case 'tool_end': {
@@ -37,13 +43,13 @@ export function useChatStream() {
               if (existing) {
                 existing.result = td.result;
                 existing.status = 'done';
-                store.setToolCall({ ...existing });
+                setToolCall({ ...existing });
               }
               break;
             }
             case 'token': {
               const td = event.data as { content: string };
-              store.appendToken(td.content);
+              appendToken(td.content);
               break;
             }
             case 'done':
@@ -80,7 +86,7 @@ export function useChatStream() {
           activeToolCall: null,
         }));
       } else {
-        store.finishStreaming('');
+        finishStreaming('');
       }
 
       abortRef.current = null;
@@ -97,19 +103,19 @@ export function useChatStream() {
               query: lastUser.content,
               response: lastAssistant.content,
             });
-            store.setSuggestions(res.suggestions);
+            setSuggestions(res.suggestions);
           }
         }
       } catch {
         // 静默失败
       }
     },
-    [store]
+    [addUserMessage, startStreaming, setToolCall, appendToken, finishStreaming, setSuggestions]
   );
 
   const stopGeneration = useCallback(() => {
     abortRef.current?.abort();
   }, []);
 
-  return { sendMessage, stopGeneration, isLoading: store.isLoading };
+  return { sendMessage, stopGeneration, isLoading };
 }
