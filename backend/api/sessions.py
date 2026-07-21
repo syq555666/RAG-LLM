@@ -27,7 +27,7 @@ def _get_preview(session_id: str) -> str | None:
                 messages = json.load(f)
             for msg in messages:
                 if msg.get("type") == "human":
-                    content = msg.get("content", "")
+                    content = msg.get("data", {}).get("content", "") if isinstance(msg.get("data"), dict) else msg.get("content", "")
                     return content[:50] + ("..." if len(content) > 50 else "")
             return "(空对话)"
     except Exception:
@@ -87,7 +87,13 @@ def get_history(session_id: str):
                 raw_messages = json.load(f)
             for msg in raw_messages:
                 role = "user" if msg.get("type") == "human" else "assistant"
-                messages.append(HistoryMessage(role=role, content=msg.get("content", "")))
+                # LangChain message_to_dict 格式: {"type": "human", "data": {"content": "..."}}
+                # 兼容两种格式：嵌套 data.content 和顶层 content
+                if "data" in msg and isinstance(msg["data"], dict):
+                    content = msg["data"].get("content", "")
+                else:
+                    content = msg.get("content", "")
+                messages.append(HistoryMessage(role=role, content=content))
     except Exception:
         pass
 
