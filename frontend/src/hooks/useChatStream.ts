@@ -2,8 +2,11 @@ import { useCallback, useRef } from 'react';
 import { useChatStore } from '../store/chatStore';
 import { streamChat } from '../api/client';
 import { apiPost } from '../api/client';
+import { createSession } from '../api/sessions';
 import toast from 'react-hot-toast';
 import type { ToolCallRecord } from '../types/chat';
+
+const SESSION_KEY = 'rag_chat_session_id';
 
 export function useChatStream() {
   const abortRef = useRef<AbortController | null>(null);
@@ -15,13 +18,27 @@ export function useChatStream() {
   const setSuggestions = useChatStore((s) => s.setSuggestions);
   const isLoading = useChatStore((s) => s.isLoading);
 
+  const ensureSession = useCallback(async (): Promise<string | null> => {
+    const { sessionId } = useChatStore.getState();
+    if (sessionId) return sessionId;
+    // 无会话时自动创建
+    try {
+      const res = await createSession();
+      localStorage.setItem(SESSION_KEY, res.session_id);
+      useChatStore.setState({ sessionId: res.session_id });
+      return res.session_id;
+    } catch {
+      toast.error('创建会话失败，请刷新页面重试');
+      return null;
+    }
+  }, []);
+
   const sendMessage = useCallback(
     async (message: string) => {
-      const { sessionId, isLoading } = useChatStore.getState();
-      if (!sessionId) {
-        toast.error('会话未就绪，请刷新页面重试');
-        return;
-      }
+      const { isLoading } = useChatStore.getState();
+
+      const sessionId = await ensureSession();
+      if (!sessionId) return;
       if (isLoading) return;
 
       addUserMessage(message);

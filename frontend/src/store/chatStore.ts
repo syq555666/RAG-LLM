@@ -11,6 +11,7 @@ interface ChatState {
   sessionId: string | null;
 
   setSessionId: (id: string) => void;
+  clearSessionId: () => void;
   addUserMessage: (content: string) => Message;
   addAssistantMessage: (content: string) => void;
   startStreaming: () => void;
@@ -31,6 +32,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   sessionId: null,
 
   setSessionId: (id) => set({ sessionId: id }),
+
+  clearSessionId: () => set({ sessionId: null }),
 
   addUserMessage: (content) => {
     const msg: Message = { id: generateId(), role: 'user', content };

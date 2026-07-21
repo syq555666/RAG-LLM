@@ -10,6 +10,7 @@ export function useSession() {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const sessionId = useChatStore((s) => s.sessionId);
   const setSessionId = useChatStore((s) => s.setSessionId);
+  const clearSessionId = useChatStore((s) => s.clearSessionId);
   const loadHistory = useChatStore((s) => s.loadHistory);
   const clearMessages = useChatStore((s) => s.clearMessages);
 
@@ -76,13 +77,16 @@ export function useSession() {
         toast.success('会话已删除');
         setSessions((prev) => prev.filter((s) => s.id !== targetId));
         if (sessionId === targetId) {
-          await newChat();
+          // 删除当前会话 → 清空状态，不自动创建（允许全部删除）
+          localStorage.removeItem(SESSION_KEY);
+          clearSessionId();
+          clearMessages();
         }
       } catch {
         toast.error('删除失败');
       }
     },
-    [sessionId, newChat]
+    [sessionId, clearSessionId, clearMessages]
   );
 
   useEffect(() => {
