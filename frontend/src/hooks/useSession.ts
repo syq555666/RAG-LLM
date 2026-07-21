@@ -87,7 +87,7 @@ export function useSession() {
 
   useEffect(() => {
     initSession();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [initSession]);
 
   return {
     sessions,

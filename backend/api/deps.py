@@ -21,13 +21,15 @@ def init_services():
 
 def get_kb_service() -> KnowledgeBaseService:
     """获取知识库服务单例"""
-    assert _kb_service is not None, "KnowledgeBaseService 未初始化"
+    if _kb_service is None:
+        raise RuntimeError("KnowledgeBaseService 未初始化，请先调用 init_services()")
     return _kb_service
 
 
 def get_agent_service() -> AgentService:
     """获取 Agent 服务单例"""
-    assert _agent_service is not None, "AgentService 未初始化"
+    if _agent_service is None:
+        raise RuntimeError("AgentService 未初始化，请先调用 init_services()")
     return _agent_service
 
 

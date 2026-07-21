@@ -48,6 +48,19 @@ class SummarizingChatMessageHistory(BaseChatMessageHistory):
         os.makedirs(storage_path, exist_ok=True)
 
         self._summary_chain = None
+        # 记录上次摘要时的消息数量，用于判断是否需要重新摘要
+        self._last_summary_msg_count = self._count_stored_messages()
+
+    def _count_stored_messages(self) -> int:
+        """计算当前存储的消息数量"""
+        try:
+            if os.path.exists(self.file_path):
+                with open(self.file_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    return len(data)
+        except Exception:
+            pass
+        return 0
 
     def _get_summary_chain(self):
         """懒加载总结 chain"""
@@ -72,15 +85,21 @@ class SummarizingChatMessageHistory(BaseChatMessageHistory):
             json.dump({"summary": summary}, f, ensure_ascii=False)
 
     def _summarize_and_truncate(self, messages: list):
-        """总结历史并截断，只保留摘要+最近消息"""
+        """总结历史并截断，只保留摘要+最近消息。
+
+        每次触发时都会重新生成摘要（结合已有摘要 + 新消息），
+        确保摘要覆盖完整对话历史。
+        """
         if len(messages) < HISTORY_SUMMARY_THRESHOLD:
             return
 
         existing_summary = self._get_summary()
-        if existing_summary:
-            return
 
+        # 构建摘要输入：如果有旧摘要，将其作为前缀
         history_text = ""
+        if existing_summary:
+            history_text += f"[之前的对话摘要]\n{existing_summary}\n\n[最近对话]\n"
+
         for msg in messages:
             role = "用户" if msg.type == "human" else "AI"
             history_text += f"{role}: {msg.content}\n"
@@ -88,7 +107,9 @@ class SummarizingChatMessageHistory(BaseChatMessageHistory):
         try:
             summary = self._get_summary_chain().invoke({"history": history_text}).strip()
             self._save_summary(summary)
+            self._last_summary_msg_count = len(messages)
 
+            # 保留最近 6 条消息 + 摘要
             recent_count = min(6, len(messages))
             recent_messages = messages[-recent_count:]
             new_messages = [message_to_dict(message) for message in recent_messages]
@@ -140,3 +161,4 @@ class SummarizingChatMessageHistory(BaseChatMessageHistory):
             json.dump([], f)
         if os.path.exists(self.summary_file_path):
             os.remove(self.summary_file_path)
+        self._last_summary_msg_count = 0

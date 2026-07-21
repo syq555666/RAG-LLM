@@ -16,7 +16,7 @@ interface ChatState {
   startStreaming: () => void;
   appendToken: (content: string) => void;
   setToolCall: (tc: ToolCallRecord | null) => void;
-  finishStreaming: (fullResponse: string) => void;
+  finishStreaming: (fullResponse: string, toolCalls?: ToolCallRecord[]) => void;
   setSuggestions: (suggestions: string[]) => void;
   loadHistory: (msgs: { role: string; content: string }[]) => void;
   clearMessages: () => void;
@@ -51,12 +51,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   setToolCall: (tc) => set({ activeToolCall: tc }),
 
-  finishStreaming: (fullResponse) => {
+  finishStreaming: (fullResponse, toolCalls?: ToolCallRecord[]) => {
+    const content = fullResponse || get().streamingContent;
+    if (!content) {
+      set({ isLoading: false, streamingContent: '', activeToolCall: null });
+      return;
+    }
     const msg: Message = {
       id: generateId(),
       role: 'assistant',
-      content: fullResponse || get().streamingContent,
-      toolCalls: get().activeToolCall ? [get().activeToolCall!] : undefined,
+      content,
+      toolCalls: toolCalls && toolCalls.length > 0 ? toolCalls : undefined,
     };
     set({
       messages: [...get().messages, msg],

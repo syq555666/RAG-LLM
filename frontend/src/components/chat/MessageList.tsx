@@ -77,15 +77,26 @@ export const MessageList: React.FC<MessageListProps> = ({
       {messages.map((msg, i) => {
         const isLast = i === messages.length - 1;
         const isAssistant = msg.role === 'assistant';
+        // 流式进行中：最后一条已有 assistant 消息时，inline 展示流式内容
+        const showInlineStreaming = isLast && isLoading && isAssistant;
         return (
           <MessageBubble
             key={msg.id}
             message={msg}
-            isStreaming={isLast && isLoading && isAssistant}
-            streamingContent={isLast && isLoading && isAssistant ? streamingContent : undefined}
+            isStreaming={showInlineStreaming}
+            streamingContent={showInlineStreaming ? streamingContent : undefined}
           />
         );
       })}
+
+      {/* 流式进行中且还没有 assistant 消息时，显示「幽灵气泡」承载流式内容 */}
+      {isLoading && (messages.length === 0 || messages[messages.length - 1].role !== 'assistant') && (
+        <MessageBubble
+          message={{ id: 'streaming-ghost', role: 'assistant', content: '' }}
+          isStreaming={true}
+          streamingContent={streamingContent}
+        />
+      )}
       <div ref={bottomRef} />
 
       {showScrollBtn && (

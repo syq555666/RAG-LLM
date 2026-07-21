@@ -2,6 +2,7 @@ import { useCallback, useRef } from 'react';
 import { useChatStore } from '../store/chatStore';
 import { streamChat } from '../api/client';
 import { apiPost } from '../api/client';
+import toast from 'react-hot-toast';
 import type { ToolCallRecord } from '../types/chat';
 
 export function useChatStream() {
@@ -17,7 +18,11 @@ export function useChatStream() {
   const sendMessage = useCallback(
     async (message: string) => {
       const { sessionId, isLoading } = useChatStore.getState();
-      if (!sessionId || isLoading) return;
+      if (!sessionId) {
+        toast.error('会话未就绪，请刷新页面重试');
+        return;
+      }
+      if (isLoading) return;
 
       addUserMessage(message);
       startStreaming();
@@ -26,6 +31,7 @@ export function useChatStream() {
       abortRef.current = abortController;
 
       const toolCalls: ToolCallRecord[] = [];
+      let streamError: string | null = null;
 
       try {
         for await (const event of streamChat(sessionId, message, abortController.signal)) {
@@ -56,6 +62,7 @@ export function useChatStream() {
               break;
             case 'error': {
               const ed = event.data as { error: string };
+              streamError = ed.error;
               console.error('Stream error:', ed.error);
               break;
             }
@@ -65,28 +72,27 @@ export function useChatStream() {
         if (err instanceof DOMException && err.name === 'AbortError') {
           // 用户主动取消
         } else {
+          const msg = err instanceof Error ? err.message : String(err);
           console.error('Chat error:', err);
+          streamError = streamError || msg;
         }
       }
 
       // 用流式内容完成消息
-      const { streamingContent } = useChatStore.getState();
-      if (streamingContent) {
-        // 为最后一条 assistant 消息附加 toolCalls
-        const msg = {
-          id: `msg_${Date.now()}`,
-          role: 'assistant' as const,
-          content: streamingContent,
-          toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
-        };
-        useChatStore.setState((s) => ({
-          messages: [...s.messages, msg],
+      const finalContent = useChatStore.getState().streamingContent;
+      if (streamError && !finalContent) {
+        // 流出错且没有任何内容返回 → 将错误作为回复展示
+        useChatStore.setState({
+          messages: [
+            ...useChatStore.getState().messages,
+            { id: `msg_${Date.now()}`, role: 'assistant', content: `⚠️ 出错了：${streamError}` },
+          ],
           isLoading: false,
           streamingContent: '',
           activeToolCall: null,
-        }));
+        });
       } else {
-        finishStreaming('');
+        finishStreaming(finalContent, toolCalls);
       }
 
       abortRef.current = null;

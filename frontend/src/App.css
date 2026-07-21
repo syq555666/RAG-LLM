@@ -25,11 +25,6 @@ body {
   line-height: 1.6;
 }
 
-html, body, #root {
-  height: 100%;
-  overflow: hidden;
-}
-
 /* ========== Layout ========== */
 .app {
   display: flex;

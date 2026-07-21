@@ -68,11 +68,12 @@ class AgentService:
         )
 
         self._cache = {}
+        self._max_cache_size = 512  # 缓存上限，防止内存无限增长
 
     def _create_rag_tool(self):
         from services.hybrid_retriever import HybridRetriever
 
-        retriever = HybridRetriever(self.vector_store, k=3)
+        retriever = HybridRetriever(self.vector_store, k=config.top_k)
 
         @tool
         def search_knowledge_base(query: str) -> str:
@@ -205,7 +206,7 @@ class AgentService:
                     result = response.content
 
                     if self.enable_cache:
-                        self._cache[cache_key] = result
+                        self._add_to_cache(cache_key, result)
 
                     return result
 
@@ -220,15 +221,23 @@ class AgentService:
                 if hasattr(msg, 'content') and msg.content:
                     result = msg.content
                     if self.enable_cache:
-                        self._cache[cache_key] = result
+                        self._add_to_cache(cache_key, result)
                     return result
                 if isinstance(msg, tuple) and msg[1]:
                     result = msg[1]
                     if self.enable_cache:
-                        self._cache[cache_key] = result
+                        self._add_to_cache(cache_key, result)
                     return result
 
         return f"已达到最大迭代次数({self.max_iterations})，未能得到答案。"
+
+    def _add_to_cache(self, key: str, value: str):
+        """写入缓存，超过上限时淘汰最旧条目"""
+        if len(self._cache) >= self._max_cache_size:
+            # 删除最早添加的条目（FIFO）
+            oldest = next(iter(self._cache))
+            del self._cache[oldest]
+        self._cache[key] = value
 
     def clear_cache(self):
         """清空缓存"""
@@ -237,7 +246,7 @@ class AgentService:
 
     def stream_events(self, query: str, history: str = ""):
         """
-        流式调用 Agent — 按阶段产出类型化的事件 dict。
+        真正的流式 Agent — 边生成边产出 token，工具调用后继续流式整理回复。
 
         产出格式:
           {"type": "tool_start", "tool_name": str, "args": dict}
@@ -246,7 +255,8 @@ class AgentService:
           {"type": "done",       "full_response": str}
           {"type": "error",      "error": str}
         """
-        from langchain_core.messages import ToolMessage
+        import json
+        from langchain_core.messages import ToolMessage, AIMessage
 
         system_msg = self._build_system_prompt(history)
 
@@ -255,33 +265,75 @@ class AgentService:
             ("user", query)
         ]
 
-        for _ in range(self.max_iterations):
+        for iteration in range(self.max_iterations):
             try:
-                response = self.llm_with_tools.invoke(messages)
+                full_content = ""
+                tool_call_chunks: dict[int, dict] = {}
 
-                if hasattr(response, 'tool_calls') and response.tool_calls:
-                    messages.append(response)
+                # 真正的流式调用 — 每个 chunk 产出 token
+                # 注：bind_tools 返回的 RunnableBinding 流式输出 AIMessageChunk，
+                #     chunk 本身就是消息对象，没有 .message 包装层
+                for chunk in self.llm_with_tools.stream(messages):
+                    # 流式输出文本（chunk 即 AIMessageChunk）
+                    if chunk.content:
+                        text = chunk.content if isinstance(chunk.content, str) else str(chunk.content)
+                        full_content += text
+                        yield {"type": "token", "content": text}
 
-                    for tool_call in response.tool_calls:
-                        tool_name = tool_call['name']
-                        tool_args = tool_call.get('args', {})
+                    # 累积 tool_call 片段
+                    if hasattr(chunk, 'tool_call_chunks') and chunk.tool_call_chunks:
+                        for tc in chunk.tool_call_chunks:
+                            idx = tc.get('index', 0)
+                            if idx not in tool_call_chunks:
+                                tool_call_chunks[idx] = {'name': '', 'args': '', 'id': ''}
+                            if tc.get('name'):
+                                tool_call_chunks[idx]['name'] += tc['name']
+                            if tc.get('args'):
+                                tool_call_chunks[idx]['args'] += tc['args']
+                            if tc.get('id') and not tool_call_chunks[idx]['id']:
+                                tool_call_chunks[idx]['id'] = tc['id']
 
-                        yield {"type": "tool_start", "tool_name": tool_name, "args": tool_args}
+                # 流结束后检查是否有工具调用
+                if tool_call_chunks:
+                    complete_tool_calls = []
+                    for idx in sorted(tool_call_chunks.keys()):
+                        tc = tool_call_chunks[idx]
+                        try:
+                            args = json.loads(tc['args']) if tc['args'] else {}
+                        except (json.JSONDecodeError, TypeError):
+                            args = {}
+                        complete_tool_calls.append({
+                            'name': tc['name'],
+                            'args': args,
+                            'id': tc['id'] or str(idx),
+                        })
 
-                        tool_call_id = tool_call.get('id', '')
-                        tool_result = self._execute_tool(tool_name, tool_args)
+                    # 将 AI 消息（含工具调用）写入历史
+                    messages.append(AIMessage(
+                        content=full_content,
+                        tool_calls=complete_tool_calls
+                    ))
 
-                        yield {"type": "tool_end", "tool_name": tool_name, "result": tool_result}
+                    # 执行工具并产出事件
+                    for tc_data in complete_tool_calls:
+                        yield {"type": "tool_start", "tool_name": tc_data['name'], "args": tc_data['args']}
+
+                        tool_result = self._execute_tool(tc_data['name'], tc_data['args'])
+
+                        yield {"type": "tool_end", "tool_name": tc_data['name'], "result": tool_result}
 
                         messages.append(ToolMessage(
                             content=tool_result,
-                            tool_call_id=tool_call_id
+                            tool_call_id=tc_data['id']
                         ))
 
+                    logger.info(f"第 {iteration + 1} 轮：调用了 {len(complete_tool_calls)} 个工具，继续流式整理回复...")
+                    # 继续循环，让 LLM 基于工具结果流式生成最终回复
                     continue
                 else:
-                    final_response = response.content
-                    break
+                    # 没有工具调用 — 流式输出完毕
+                    yield {"type": "done", "full_response": full_content}
+                    return
 
             except Exception as e:
                 import traceback
@@ -289,21 +341,8 @@ class AgentService:
                 logger.error(f"Agent 流式执行出错: {e}")
                 yield {"type": "error", "error": str(e)}
                 return
-        else:
-            yield {"type": "error", "error": f"已达到最大迭代次数({self.max_iterations})，未能得到答案。"}
-            return
 
-        # 流式输出最终回答（每 3 字符一批）
-        buffer = ""
-        for char in final_response:
-            buffer += char
-            if len(buffer) >= 3:
-                yield {"type": "token", "content": buffer}
-                buffer = ""
-        if buffer:
-            yield {"type": "token", "content": buffer}
-
-        yield {"type": "done", "full_response": final_response}
+        yield {"type": "error", "error": f"已达到最大迭代次数({self.max_iterations})，未能得到答案。"}
 
     def generate_suggestions(self, query: str, response: str, history: str = "") -> list:
         """生成追问建议"""
