@@ -1,12 +1,10 @@
 import { useCallback, useRef } from 'react';
 import { useChatStore } from '../store/chatStore';
-import { streamChat } from '../api/client';
-import { apiPost } from '../api/client';
+import { streamChat, apiPost } from '../api/client';
 import { createSession } from '../api/sessions';
+import { SESSION_KEY } from '../utils/constants';
 import toast from 'react-hot-toast';
 import type { ToolCallRecord } from '../types/chat';
-
-const SESSION_KEY = 'rag_chat_session_id';
 
 export function useChatStream() {
   const abortRef = useRef<AbortController | null>(null);
@@ -35,11 +33,9 @@ export function useChatStream() {
 
   const sendMessage = useCallback(
     async (message: string) => {
-      const { isLoading } = useChatStore.getState();
-
       const sessionId = await ensureSession();
       if (!sessionId) return;
-      if (isLoading) return;
+      if (useChatStore.getState().isLoading) return;
 
       addUserMessage(message);
       startStreaming();

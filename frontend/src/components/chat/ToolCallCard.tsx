@@ -27,7 +27,11 @@ export const ToolCallCard: React.FC<ToolCallCardProps> = ({ toolCall }) => {
           <span className="tool-icon">✗</span>
         )}
         <span className="tool-label">
-          {toolCall.status === 'running' ? `正在${label}...` : `${label}完成`}
+          {toolCall.status === 'running'
+            ? `正在${label}...`
+            : toolCall.status === 'error'
+              ? `${label}失败`
+              : `${label}完成`}
         </span>
         {toolCall.result && (
           <button className="tool-expand-btn">{expanded ? '收起' : '详情'}</button>

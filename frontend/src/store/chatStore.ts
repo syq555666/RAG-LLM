@@ -13,7 +13,6 @@ interface ChatState {
   setSessionId: (id: string) => void;
   clearSessionId: () => void;
   addUserMessage: (content: string) => Message;
-  addAssistantMessage: (content: string) => void;
   startStreaming: () => void;
   appendToken: (content: string) => void;
   setToolCall: (tc: ToolCallRecord | null) => void;
@@ -39,11 +38,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const msg: Message = { id: generateId(), role: 'user', content };
     set((s) => ({ messages: [...s.messages, msg], suggestions: [] }));
     return msg;
-  },
-
-  addAssistantMessage: (content) => {
-    const msg: Message = { id: generateId(), role: 'assistant', content };
-    set((s) => ({ messages: [...s.messages, msg] }));
   },
 
   startStreaming: () =>

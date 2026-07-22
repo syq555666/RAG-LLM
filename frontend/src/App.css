@@ -212,9 +212,11 @@ body {
   scrollbar-gutter: stable;
   margin-right: -12px;
   padding-right: 12px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.15) transparent;
 }
 
-/* 细窄半透明滚动条 */
+/* 细窄半透明滚动条 — WebKit */
 .message-list::-webkit-scrollbar {
   width: 6px;
 }
@@ -300,6 +302,7 @@ body {
 
 .tool-call-card.running { border-color: #fbbf24; background: #fffbeb; }
 .tool-call-card.done { border-color: #86efac; background: #f0fdf4; }
+.tool-call-card.error { border-color: #fca5a5; background: #fef2f2; }
 
 .tool-call-header {
   display: flex; align-items: center; gap: 8px;

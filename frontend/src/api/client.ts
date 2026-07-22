@@ -1,5 +1,5 @@
 import { API_BASE_URL } from '../utils/constants';
-import type { StreamEvent, TokenData, ToolStartData, ToolEndData, DoneData, ErrorData } from '../types/chat';
+import type { StreamEvent, TokenData, ToolStartData, ToolEndData, ErrorData } from '../types/chat';
 
 export async function* streamChat(
   sessionId: string,

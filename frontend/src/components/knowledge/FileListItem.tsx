@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 interface FileListItemProps {
   filename: string;
@@ -6,7 +6,7 @@ interface FileListItemProps {
 }
 
 export const FileListItem: React.FC<FileListItemProps> = ({ filename, onDelete }) => {
-  const [confirming, setConfirming] = React.useState(false);
+  const [confirming, setConfirming] = useState(false);
 
   const ext = filename.split('.').pop()?.toLowerCase() || '';
   const icon = { txt: '📄', md: '📝', csv: '📊', json: '📋' }[ext] || '📄';
