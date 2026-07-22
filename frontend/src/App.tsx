@@ -18,7 +18,6 @@ const App: React.FC = () => {
       <main className="main-content">
         <header className="top-bar">
           <h1>🤖 智能客服</h1>
-          <span className="model-badge">DeepSeek</span>
         </header>
         <ChatContainer />
       </main>

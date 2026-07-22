@@ -51,15 +51,6 @@ body {
 
 .top-bar h1 { font-size: 18px; font-weight: 600; }
 
-.model-badge {
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 10px;
-  background: #ecfdf5;
-  color: #059669;
-  font-weight: 500;
-}
-
 /* ========== Sidebar ========== */
 .sidebar {
   width: var(--sidebar-width);
