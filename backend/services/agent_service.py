@@ -2,12 +2,9 @@ from langchain_core.tools import tool
 from langchain_deepseek import ChatDeepSeek
 from datetime import datetime
 import config_data as config
-from dotenv import load_dotenv
 from zoneinfo import ZoneInfo
 import logging
 import hashlib
-
-load_dotenv()
 
 logging.basicConfig(
     level=logging.INFO,
@@ -59,13 +56,7 @@ class AgentService:
         if vector_store:
             self._create_rag_tool()
 
-        self.tool_names = [t.name for t in self.tools]
         self.llm_with_tools = self.chat_model.bind_tools(self.tools)
-
-        self.intent_llm = ChatDeepSeek(
-            model=config.chat_model_name,
-            temperature=0
-        )
 
         self._cache = {}
         self._max_cache_size = 512  # 缓存上限，防止内存无限增长

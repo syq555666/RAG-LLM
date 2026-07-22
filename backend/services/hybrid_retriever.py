@@ -1,12 +1,8 @@
-from langchain_chroma import Chroma
 from langchain_core.documents import Document
 import config_data as config
-from dotenv import load_dotenv
 from rank_bm25 import BM25Okapi
 import numpy as np
 from collections import defaultdict
-
-load_dotenv()
 
 
 def _tokenize(text: str) -> list[str]:
@@ -51,28 +47,35 @@ class HybridRetriever:
 
         # 向量检索
         vector_results = self.vector_store.similarity_search(query, k=self.k)
-        vector_docs = [doc.page_content for doc in vector_results]
 
         # BM25检索（中文分词）
-        bm25_docs = []
+        bm25_docs: list[tuple[str, int | None]] = []
         if self._index_built and self.bm25:
             query_tokens = _tokenize(query)
             bm25_scores = self.bm25.get_scores(query_tokens)
             top_indices = np.argsort(bm25_scores)[-self.k:][::-1]
-            bm25_docs = [self.chunk_texts[i] for i in top_indices if bm25_scores[i] > self.bm25_threshold]
+            for idx in top_indices:
+                if bm25_scores[idx] > self.bm25_threshold:
+                    bm25_docs.append((self.chunk_texts[idx], idx))
 
-        # RRF融合
-        fused_docs = self._rrf_fusion(vector_docs, bm25_docs)
-        return [Document(page_content=doc) for doc in fused_docs]
+        # RRF融合，保留元数据
+        fused_docs = self._rrf_fusion(vector_results, bm25_docs)
+        return fused_docs
 
-    def _rrf_fusion(self, vec_docs: list, bm25_docs: list):
-        """倒数排名融合 (Reciprocal Rank Fusion)"""
+    def _rrf_fusion(self, vec_docs: list[Document], bm25_docs: list[tuple[str, int | None]]):
+        """倒数排名融合 (Reciprocal Rank Fusion)，保留 Document 的 metadata"""
         scores = defaultdict(float)
+        doc_map: dict[str, Document] = {}
 
         for i, doc in enumerate(vec_docs):
-            scores[doc] += 1 / (60 + i + 1)
-        for i, doc in enumerate(bm25_docs):
-            scores[doc] += 1 / (60 + i + 1)
+            key = doc.page_content
+            scores[key] += 1 / (60 + i + 1)
+            doc_map[key] = doc
+
+        for i, (content, _idx) in enumerate(bm25_docs):
+            scores[content] += 1 / (60 + i + 1)
+            if content not in doc_map:
+                doc_map[content] = Document(page_content=content)
 
         sorted_docs = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-        return [doc for doc, _ in sorted_docs[:self.k]]
+        return [doc_map[content] for content, _ in sorted_docs[:self.k]]

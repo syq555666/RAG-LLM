@@ -10,7 +10,8 @@ def health_check():
     try:
         kb = get_kb_service()
         kb_count = len(kb.get_file_list())
-    except Exception:
-        kb_count = 0
-
-    return {"status": "ok", "kb_file_count": kb_count}
+        return {"status": "ok", "kb_file_count": kb_count}
+    except RuntimeError as e:
+        return {"status": "error", "kb_file_count": 0, "detail": str(e)}
+    except Exception as e:
+        return {"status": "degraded", "kb_file_count": 0, "detail": str(e)}

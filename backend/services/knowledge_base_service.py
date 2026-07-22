@@ -6,12 +6,9 @@ import threading
 from langchain_chroma import Chroma
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from datetime import datetime
-from dotenv import load_dotenv
 from simhash import Simhash
 
 import config_data as config
-
-load_dotenv()
 
 # SimHash 相似度阈值 (0-1，越高越严格)
 SIMHASH_SIMILARITY_THRESHOLD = 0.8
@@ -125,7 +122,7 @@ def is_similar(text: str, existing_hashes: list) -> bool:
     return False
 
 
-class KnowledgeBaseService(object):
+class KnowledgeBaseService:
     def __init__(self):
         os.makedirs(config.persist_directory, exist_ok=True)
 
@@ -205,7 +202,7 @@ class KnowledgeBaseService(object):
         metadata = {
             "source": filename,
             "create_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "operator": "小王",
+            "operator": "system",
         }
 
         self.chroma.add_texts(

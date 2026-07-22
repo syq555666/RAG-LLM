@@ -2,10 +2,6 @@ from pydantic import BaseModel, Field
 from typing import Literal
 
 
-class FileInfo(BaseModel):
-    filename: str
-
-
 class FileListResponse(BaseModel):
     files: list[str] = Field(default_factory=list)
     count: int = 0

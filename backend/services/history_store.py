@@ -7,11 +7,9 @@ from langchain_deepseek import ChatDeepSeek
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 import config_data as config
-from dotenv import load_dotenv
-
-load_dotenv()
 
 HISTORY_SUMMARY_THRESHOLD = 10
+RECENT_MESSAGE_KEEP_COUNT = 6
 
 SUMMARY_PROMPT = ChatPromptTemplate.from_messages(
     [
@@ -48,19 +46,6 @@ class SummarizingChatMessageHistory(BaseChatMessageHistory):
         os.makedirs(storage_path, exist_ok=True)
 
         self._summary_chain = None
-        # 记录上次摘要时的消息数量，用于判断是否需要重新摘要
-        self._last_summary_msg_count = self._count_stored_messages()
-
-    def _count_stored_messages(self) -> int:
-        """计算当前存储的消息数量"""
-        try:
-            if os.path.exists(self.file_path):
-                with open(self.file_path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    return len(data)
-        except Exception:
-            pass
-        return 0
 
     def _get_summary_chain(self):
         """懒加载总结 chain"""
@@ -107,10 +92,9 @@ class SummarizingChatMessageHistory(BaseChatMessageHistory):
         try:
             summary = self._get_summary_chain().invoke({"history": history_text}).strip()
             self._save_summary(summary)
-            self._last_summary_msg_count = len(messages)
 
-            # 保留最近 6 条消息 + 摘要
-            recent_count = min(6, len(messages))
+            # 保留最近消息 + 摘要
+            recent_count = min(RECENT_MESSAGE_KEEP_COUNT, len(messages))
             recent_messages = messages[-recent_count:]
             new_messages = [message_to_dict(message) for message in recent_messages]
 
@@ -144,7 +128,7 @@ class SummarizingChatMessageHistory(BaseChatMessageHistory):
     def get_context_for_llm(self) -> str:
         """获取传递给 LLM 的上下文（包括摘要 + 最近消息）"""
         summary = self._get_summary()
-        recent_messages = self.messages[-6:]
+        recent_messages = self.messages[-RECENT_MESSAGE_KEEP_COUNT:]
 
         context = ""
         if summary:
@@ -161,4 +145,3 @@ class SummarizingChatMessageHistory(BaseChatMessageHistory):
             json.dump([], f)
         if os.path.exists(self.summary_file_path):
             os.remove(self.summary_file_path)
-        self._last_summary_msg_count = 0

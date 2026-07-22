@@ -1,6 +1,6 @@
 import asyncio
 import json
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import HumanMessage, AIMessage
 
@@ -22,7 +22,7 @@ async def stream_chat(request: StreamChatRequest):
 
     async def event_generator():
         full_response = ""
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         try:
             # 在线程池中运行同步的 agent 流式生成
@@ -75,11 +75,15 @@ async def stream_chat(request: StreamChatRequest):
 
 
 @router.post("/suggestions", response_model=SuggestionsResponse)
-def get_suggestions(request: SuggestionsRequest):
+async def get_suggestions(request: SuggestionsRequest):
     """获取追问建议"""
     agent = get_agent_service()
     history_store = get_history_store(request.session_id)
     history_str = history_store.get_context_for_llm()
 
-    suggestions = agent.generate_suggestions(request.query, request.response, history=history_str)
+    loop = asyncio.get_running_loop()
+    suggestions = await loop.run_in_executor(
+        None,
+        lambda: agent.generate_suggestions(request.query, request.response, history=history_str)
+    )
     return SuggestionsResponse(suggestions=suggestions)

@@ -13,6 +13,14 @@ from schemas.session import (
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
 
+def _extract_content(msg: dict) -> str:
+    """从 LangChain message_to_dict 格式的消息中提取文本内容。
+    兼容两种格式：嵌套 data.content 和顶层 content。"""
+    if "data" in msg and isinstance(msg["data"], dict):
+        return msg["data"].get("content", "")
+    return msg.get("content", "")
+
+
 def _get_history_path():
     """获取历史存储路径"""
     return config.chat_history_path
@@ -27,7 +35,7 @@ def _get_preview(session_id: str) -> str | None:
                 messages = json.load(f)
             for msg in messages:
                 if msg.get("type") == "human":
-                    content = msg.get("data", {}).get("content", "") if isinstance(msg.get("data"), dict) else msg.get("content", "")
+                    content = _extract_content(msg)
                     return content[:50] + ("..." if len(content) > 50 else "")
             return "(空对话)"
     except Exception:
@@ -87,12 +95,7 @@ def get_history(session_id: str):
                 raw_messages = json.load(f)
             for msg in raw_messages:
                 role = "user" if msg.get("type") == "human" else "assistant"
-                # LangChain message_to_dict 格式: {"type": "human", "data": {"content": "..."}}
-                # 兼容两种格式：嵌套 data.content 和顶层 content
-                if "data" in msg and isinstance(msg["data"], dict):
-                    content = msg["data"].get("content", "")
-                else:
-                    content = msg.get("content", "")
+                content = _extract_content(msg)
                 messages.append(HistoryMessage(role=role, content=content))
     except Exception:
         pass
