@@ -10,6 +10,9 @@ class SessionInfo(BaseModel):
 
 class SessionListResponse(BaseModel):
     sessions: list[SessionInfo] = Field(default_factory=list)
+    total: int = 0
+    page: int = 1
+    page_size: int = 20
 
 
 class SessionCreateResponse(BaseModel):

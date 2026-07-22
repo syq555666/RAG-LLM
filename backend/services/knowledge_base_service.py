@@ -3,12 +3,15 @@ import os
 import hashlib
 import json
 import threading
+import logging
 from langchain_chroma import Chroma
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from datetime import datetime
 from simhash import Simhash
 
 import config_data as config
+
+logger = logging.getLogger(__name__)
 
 # SimHash 相似度阈值 (0-1，越高越严格)
 SIMHASH_SIMILARITY_THRESHOLD = 0.8
@@ -149,6 +152,30 @@ class KnowledgeBaseService:
         # 线程安全锁 — Chroma 不支持并发写
         self._write_lock = threading.Lock()
 
+        # 内存文件集合 — 避免每次 get_file_list() 都全量查询 Chroma
+        self._file_set: set = self._load_file_set()
+
+        # 知识库变更回调（由 deps.py 注册，用于通知 Agent 重建检索索引）
+        self.on_change: callable | None = None
+
+    def _load_file_set(self) -> set:
+        """从 Chroma 加载文件列表到内存（仅初始化时调用一次）"""
+        try:
+            collection = self.chroma.get()
+            metadatas = collection.get('metadatas', []) if collection else []
+            return set(m.get('source') for m in metadatas if m and m.get('source'))
+        except Exception:
+            logger.warning("加载文件列表失败，初始化为空集合")
+            return set()
+
+    def _notify_change(self):
+        """通知外部组件知识库已变更"""
+        if self.on_change:
+            try:
+                self.on_change()
+            except Exception:
+                logger.warning("知识库变更回调执行失败", exc_info=True)
+
     def _get_existing_hash_values(self, exclude_source: str = None) -> list:
         """获取当前索引中所有 hash 值（排除指定 source，用于去重检测）"""
         values = []
@@ -212,6 +239,12 @@ class KnowledgeBaseService:
 
         save_md5(md5_hex, filename)
 
+        # 更新内存文件集合
+        self._file_set.add(filename)
+
+        # 通知检索器重建索引
+        self._notify_change()
+
         skipped_info = f"，跳过了 {skipped_count} 个相似段落" if skipped_count else ""
         return f"【成功】，{len(new_chunks)} 个新段落已入库{skipped_info}"
 
@@ -227,11 +260,12 @@ class KnowledgeBaseService:
             # 重新加载内存中的 simhash 索引
             self.simhash_index = load_simhash_index()
 
+            # 更新内存文件集合
+            self._file_set.discard(filename)
+
+            # 通知检索器重建索引
+            self._notify_change()
+
     def get_file_list(self) -> set:
-        """获取知识库中的文件列表"""
-        try:
-            collection = self.chroma.get()
-            metadatas = collection.get('metadatas', []) if collection else []
-            return set(m.get('source') for m in metadatas if m and m.get('source'))
-        except Exception:
-            return set()
+        """获取知识库中的文件列表（从内存缓存，O(1)）"""
+        return self._file_set

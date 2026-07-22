@@ -1,176 +1,135 @@
-from langchain_core.tools import tool
-from langchain_deepseek import ChatDeepSeek
-from datetime import datetime
-import config_data as config
-from zoneinfo import ZoneInfo
-import logging
-import hashlib
+"""Agent 服务 — 核心推理引擎（流式 + 非流式）"""
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+import json
+import time
+import hashlib
+import logging
+from langchain_core.messages import ToolMessage, AIMessage
+from langchain_deepseek import ChatDeepSeek
+
+from services.prompts import build_system_prompt, build_suggestions_prompt
+from services.tools import BASE_TOOLS, create_rag_tool
+from services.hybrid_retriever import HybridRetriever
+import config_data as config
+
 logger = logging.getLogger(__name__)
 
-
-@tool
-def get_current_time() -> str:
-    """获取当前日期和时间。当你不知道今天是几号、现在几点时，必须使用此工具查询。不需要任何输入参数。"""
-    now = datetime.now(ZoneInfo("Asia/Shanghai"))
-    return f"当前时间：{now.strftime('%Y年%m月%d日 %H:%M')}"
-
-
-@tool
-def web_search(query: str) -> str:
-    """搜索互联网获取最新信息。当用户询问实时新闻、天气、股价等实时信息时使用。query 是搜索关键词。"""
-    try:
-        from ddgs import DDGS
-
-        ddgs = DDGS()
-        results = ddgs.text(query, max_results=3)
-        if results:
-            formatted = []
-            for r in results:
-                title = r.get('title', '')
-                link = r.get('href') or r.get('url', '')
-                formatted.append(f"- {title}: {link}")
-            return "\n".join(formatted)
-        return "未找到相关信息"
-    except Exception as e:
-        logger.error(f"网络搜索失败: {e}")
-        return f"网络搜索失败: {str(e)}"
-
-
-BASE_TOOLS = [get_current_time, web_search]
+# 缓存 TTL（秒）
+CACHE_TTL_SECONDS = 300  # 5 分钟
 
 
 class AgentService:
-    def __init__(self, max_iterations=5, vector_store=None, enable_cache=True, max_retries=2):
-        self.chat_model = ChatDeepSeek(model=config.chat_model_name)
+    def __init__(
+        self,
+        max_iterations=5,
+        vector_store=None,
+        enable_cache=True,
+        max_retries=2,
+        chat_model: ChatDeepSeek | None = None,
+    ):
+        # 使用传入的 LLM 实例或创建新的（向后兼容）
+        self.chat_model = chat_model or ChatDeepSeek(model=config.chat_model_name)
         self.max_iterations = max_iterations
         self.vector_store = vector_store
         self.enable_cache = enable_cache
         self.max_retries = max_retries
 
-        self.tools = BASE_TOOLS.copy()
+        # 初始化工具列表和 O(1) 字典查找
+        self.tools = list(BASE_TOOLS)  # 复制一份
+        self._tool_map: dict[str, object] = {t.name: t for t in self.tools}
+        self._retriever: HybridRetriever | None = None
+
         if vector_store:
             self._create_rag_tool()
 
         self.llm_with_tools = self.chat_model.bind_tools(self.tools)
 
-        self._cache = {}
-        self._max_cache_size = 512  # 缓存上限，防止内存无限增长
+        # 带 TTL 的缓存: {key: (value, timestamp)}
+        self._cache: dict[str, tuple[str, float]] = {}
+        self._max_cache_size = 512
 
     def _create_rag_tool(self):
-        from services.hybrid_retriever import HybridRetriever
-
-        retriever = HybridRetriever(self.vector_store, k=config.top_k)
-
-        @tool
-        def search_knowledge_base(query: str) -> str:
-            """搜索知识库获取相关信息。当用户问技术问题、文档相关内容时使用。query 是搜索关键词。"""
-            try:
-                docs = retriever.invoke(query)
-                if not docs:
-                    return "知识库中没有找到相关内容"
-                results = []
-                for i, doc in enumerate(docs[:3], 1):
-                    results.append(f"相关文档 {i}: {doc.page_content[:200]}...")
-                return "\n\n".join(results)
-            except Exception as e:
-                logger.error(f"知识库搜索失败: {e}")
-                return f"知识库搜索失败: {str(e)}"
-
-        self.tools.append(search_knowledge_base)
+        """创建并注册知识库搜索工具"""
+        self._retriever = HybridRetriever(self.vector_store, k=config.top_k)
+        rag_tool = create_rag_tool(self._retriever)
+        self.tools.append(rag_tool)
+        self._tool_map[rag_tool.name] = rag_tool
         self.llm_with_tools = self.chat_model.bind_tools(self.tools)
 
-    def _build_system_prompt(self, history: str = "") -> str:
-        base_prompt = """你是一个专业的智能客服助手。
-
-## 你的能力
-1. 回答用户问题
-2. 使用工具获取实时信息
-3. 搜索知识库获取相关文档
-
-## 回答要求
-1. 回答要简洁明了，用 Markdown 格式组织回答
-2. 如果知识库没有找到相关信息，请明确告知用户
-3. 如果需要使用工具，必须调用相关工具，不要假设结果
-4. 不要重复调用同一个工具
-5. 如果不确定信息，请如实告知用户"""
-
-        tool_instructions = """
-## 工具使用规则
-- 当用户问时间、日期时 → 使用 get_current_time
-- 当用户问知识库相关问题时 → 使用 search_knowledge_base
-- 当用户问实时新闻、天气、股价等 → 使用 web_search
-- 其他问题可以直接回答"""
-
-        if history:
-            return f"""{base_prompt}
-
-{tool_instructions}
-
-【历史对话】
-{history}
-
-现在开始回答用户问题。"""
-        else:
-            return f"""{base_prompt}
-
-{tool_instructions}
-
-现在开始回答用户问题。"""
+    def invalidate_retriever(self):
+        """知识库变更后失效检索器索引（由 deps.py 回调触发）"""
+        if self._retriever:
+            self._retriever.invalidate()
+        # 同时清空缓存，防止返回基于旧知识库的答案
+        if self.enable_cache:
+            self.clear_cache()
 
     def _get_cache_key(self, query: str, history: str = "") -> str:
         key_str = f"{query}:{history}"
         return hashlib.md5(key_str.encode()).hexdigest()
 
-    def _execute_tool(self, tool_name: str, tool_args: dict, retry: int = None) -> str:
-        import json
+    def _cache_get(self, key: str) -> str | None:
+        """从缓存获取，检查 TTL"""
+        if key not in self._cache:
+            return None
+        value, timestamp = self._cache[key]
+        if time.time() - timestamp > CACHE_TTL_SECONDS:
+            del self._cache[key]
+            return None
+        return value
 
-        if retry is None:
-            retry = self.max_retries
+    def _cache_set(self, key: str, value: str):
+        """写入缓存，超过上限时 FIFO 淘汰"""
+        if len(self._cache) >= self._max_cache_size:
+            oldest = next(iter(self._cache))
+            del self._cache[oldest]
+        self._cache[key] = (value, time.time())
+
+    def _execute_tool(self, tool_name: str, tool_args: dict, attempts: int = None) -> str:
+        """执行工具，O(1) 查找 + 重试"""
+        if attempts is None:
+            attempts = self.max_retries
 
         if isinstance(tool_args, str):
             try:
                 tool_args = json.loads(tool_args)
-            except:
+            except (json.JSONDecodeError, TypeError):
                 tool_args = {}
 
         if not isinstance(tool_args, dict):
             tool_args = {}
 
-        for attempt in range(retry):
-            for t in self.tools:
-                if t.name == tool_name:
-                    try:
-                        logger.info(f"执行工具: {tool_name}, 参数: {tool_args}, 尝试: {attempt + 1}/{retry}")
-                        result = t.invoke(tool_args)
-                        logger.info(f"工具执行成功: {tool_name}")
-                        return str(result)
-                    except Exception as e:
-                        logger.warning(f"工具执行失败: {tool_name}, 错误: {e}, 尝试: {attempt + 1}/{retry}")
-                        if attempt == retry - 1:
-                            return f"工具执行失败: {str(e)}"
-        return f"未知工具: {tool_name}"
+        tool = self._tool_map.get(tool_name)
+        if tool is None:
+            return f"未知工具: {tool_name}"
+
+        for attempt in range(attempts):
+            try:
+                logger.info(f"执行工具: {tool_name}, 参数: {tool_args}, 尝试: {attempt + 1}/{attempts}")
+                result = tool.invoke(tool_args)
+                logger.info(f"工具执行成功: {tool_name}")
+                return str(result)
+            except Exception as e:
+                logger.warning(f"工具执行失败: {tool_name}, 错误: {e}, 尝试: {attempt + 1}/{attempts}")
+                if attempt == attempts - 1:
+                    return f"工具执行失败: {str(e)}"
+        return f"工具执行失败: {tool_name}"
 
     def invoke(self, query: str, history: str = "") -> str:
         """调用 Agent（非流式）"""
-        from langchain_core.messages import ToolMessage
-
         if self.enable_cache:
             cache_key = self._get_cache_key(query, history)
-            if cache_key in self._cache:
+            cached = self._cache_get(cache_key)
+            if cached is not None:
                 logger.info(f"命中缓存: {query[:20]}...")
-                return self._cache[cache_key]
+                return cached
 
-        system_msg = self._build_system_prompt(history)
-
+        system_msg = build_system_prompt(history)
         messages = [
             ("system", system_msg),
             ("user", query)
         ]
+        last_response = ""
 
         for i in range(self.max_iterations):
             try:
@@ -194,12 +153,12 @@ class AgentService:
                     logger.info(f"第 {i + 1} 轮：调用了工具，继续推理")
                     continue
                 else:
-                    result = response.content
+                    last_response = response.content
 
                     if self.enable_cache:
-                        self._add_to_cache(cache_key, result)
+                        self._cache_set(cache_key, last_response)
 
-                    return result
+                    return last_response
 
             except Exception as e:
                 import traceback
@@ -207,33 +166,12 @@ class AgentService:
                 logger.error(f"Agent 执行出错: {e}")
                 return f"执行出错: {str(e)}"
 
-        if messages:
-            for msg in reversed(messages):
-                if hasattr(msg, 'content') and msg.content:
-                    result = msg.content
-                    if self.enable_cache:
-                        self._add_to_cache(cache_key, result)
-                    return result
-                if isinstance(msg, tuple) and msg[1]:
-                    result = msg[1]
-                    if self.enable_cache:
-                        self._add_to_cache(cache_key, result)
-                    return result
-
-        return f"已达到最大迭代次数({self.max_iterations})，未能得到答案。"
-
-    def _add_to_cache(self, key: str, value: str):
-        """写入缓存，超过上限时淘汰最旧条目"""
-        if len(self._cache) >= self._max_cache_size:
-            # 删除最早添加的条目（FIFO）
-            oldest = next(iter(self._cache))
-            del self._cache[oldest]
-        self._cache[key] = value
+        return last_response or f"已达到最大迭代次数({self.max_iterations})，未能得到答案。"
 
     def clear_cache(self):
         """清空缓存"""
         self._cache.clear()
-        logger.info("缓存已清空")
+        logger.info("Agent 缓存已清空")
 
     def stream_events(self, query: str, history: str = ""):
         """
@@ -246,10 +184,7 @@ class AgentService:
           {"type": "done",       "full_response": str}
           {"type": "error",      "error": str}
         """
-        import json
-        from langchain_core.messages import ToolMessage, AIMessage
-
-        system_msg = self._build_system_prompt(history)
+        system_msg = build_system_prompt(history)
 
         messages = [
             ("system", system_msg),
@@ -262,8 +197,6 @@ class AgentService:
                 tool_call_chunks: dict[int, dict] = {}
 
                 # 真正的流式调用 — 每个 chunk 产出 token
-                # 注：bind_tools 返回的 RunnableBinding 流式输出 AIMessageChunk，
-                #     chunk 本身就是消息对象，没有 .message 包装层
                 for chunk in self.llm_with_tools.stream(messages):
                     # 流式输出文本（chunk 即 AIMessageChunk）
                     if chunk.content:
@@ -319,7 +252,6 @@ class AgentService:
                         ))
 
                     logger.info(f"第 {iteration + 1} 轮：调用了 {len(complete_tool_calls)} 个工具，继续流式整理回复...")
-                    # 继续循环，让 LLM 基于工具结果流式生成最终回复
                     continue
                 else:
                     # 没有工具调用 — 流式输出完毕
@@ -337,17 +269,7 @@ class AgentService:
 
     def generate_suggestions(self, query: str, response: str, history: str = "") -> list:
         """生成追问建议"""
-        context = f"\n历史对话：{history}" if history else ""
-        suggestion_prompt = f"""基于以下对话，生成 3 个用户可能会追问的相关问题。
-
-用户问题：{query}
-AI 回答：{response}{context}
-
-要求：
-1. 生成 3 个简洁的相关问题
-2. 每个问题不超过 20 个字
-3. 只输出问题，不要有其他内容
-4. 用中文"""
+        suggestion_prompt = build_suggestions_prompt(query, response, history)
 
         try:
             result = self.chat_model.invoke(suggestion_prompt)

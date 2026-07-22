@@ -1,12 +1,18 @@
+"""对话历史存储 — 文件持久化 + 自动摘要 + 并发安全"""
+
 import json
 import os
+import threading
+import logging
 from typing import Sequence
 from langchain_core.chat_history import BaseChatMessageHistory
 from langchain_core.messages import BaseMessage, message_to_dict, messages_from_dict
-from langchain_deepseek import ChatDeepSeek
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
+
 import config_data as config
+
+logger = logging.getLogger(__name__)
 
 HISTORY_SUMMARY_THRESHOLD = 10
 RECENT_MESSAGE_KEEP_COUNT = 6
@@ -23,21 +29,22 @@ SUMMARY_PROMPT = ChatPromptTemplate.from_messages(
     ]
 )
 
-_llm = None
+# 文件级锁 — 防止同一会话并发读写导致 JSON 损坏
+_file_locks: dict[str, threading.Lock] = {}
+_file_locks_guard = threading.Lock()
 
 
-def _get_llm():
-    """获取单例 LLM 实例"""
-    global _llm
-    if _llm is None:
-        _llm = ChatDeepSeek(model=config.chat_model_name)
-    return _llm
+def _acquire_file_lock(file_path: str) -> threading.Lock:
+    """获取指定文件的锁（线程安全地创建/获取）"""
+    with _file_locks_guard:
+        if file_path not in _file_locks:
+            _file_locks[file_path] = threading.Lock()
+        return _file_locks[file_path]
 
 
 class SummarizingChatMessageHistory(BaseChatMessageHistory):
     def __init__(self, session_id, storage_path=None):
         self.session_id = session_id
-        # 使用配置中的路径
         if storage_path is None:
             storage_path = config.chat_history_path
         self.storage_path = storage_path
@@ -45,12 +52,15 @@ class SummarizingChatMessageHistory(BaseChatMessageHistory):
         self.file_path = os.path.join(storage_path, f"{session_id}.json")
         os.makedirs(storage_path, exist_ok=True)
 
+        # 获取此会话文件的锁
+        self._lock = _acquire_file_lock(self.file_path)
         self._summary_chain = None
 
     def _get_summary_chain(self):
-        """懒加载总结 chain"""
+        """懒加载总结 chain（使用共享 LLM）"""
         if self._summary_chain is None:
-            self._summary_chain = SUMMARY_PROMPT | _get_llm() | StrOutputParser()
+            from api.deps import get_shared_llm
+            self._summary_chain = SUMMARY_PROMPT | get_shared_llm() | StrOutputParser()
         return self._summary_chain
 
     def _get_summary(self) -> str:
@@ -61,7 +71,7 @@ class SummarizingChatMessageHistory(BaseChatMessageHistory):
                     data = json.load(f)
                     return data.get("summary", "")
         except Exception:
-            pass
+            logger.warning(f"读取会话摘要失败: {self.session_id}", exc_info=True)
         return ""
 
     def _save_summary(self, summary: str):
@@ -70,17 +80,12 @@ class SummarizingChatMessageHistory(BaseChatMessageHistory):
             json.dump({"summary": summary}, f, ensure_ascii=False)
 
     def _summarize_and_truncate(self, messages: list):
-        """总结历史并截断，只保留摘要+最近消息。
-
-        每次触发时都会重新生成摘要（结合已有摘要 + 新消息），
-        确保摘要覆盖完整对话历史。
-        """
+        """总结历史并截断，只保留摘要+最近消息。"""
         if len(messages) < HISTORY_SUMMARY_THRESHOLD:
             return
 
         existing_summary = self._get_summary()
 
-        # 构建摘要输入：如果有旧摘要，将其作为前缀
         history_text = ""
         if existing_summary:
             history_text += f"[之前的对话摘要]\n{existing_summary}\n\n[最近对话]\n"
@@ -93,7 +98,6 @@ class SummarizingChatMessageHistory(BaseChatMessageHistory):
             summary = self._get_summary_chain().invoke({"history": history_text}).strip()
             self._save_summary(summary)
 
-            # 保留最近消息 + 摘要
             recent_count = min(RECENT_MESSAGE_KEEP_COUNT, len(messages))
             recent_messages = messages[-recent_count:]
             new_messages = [message_to_dict(message) for message in recent_messages]
@@ -102,33 +106,39 @@ class SummarizingChatMessageHistory(BaseChatMessageHistory):
                 json.dump(new_messages, f, ensure_ascii=False)
 
         except Exception as e:
-            print(f"总结历史失败: {e}")
+            logger.warning(f"总结历史失败 (session={self.session_id}): {e}")
 
     @property
     def messages(self) -> list[BaseMessage]:
-        try:
-            with open(self.file_path, "r", encoding="utf-8") as f:
-                messages_data = json.load(f)
-                return messages_from_dict(messages_data)
-        except FileNotFoundError:
-            return []
+        with self._lock:
+            try:
+                with open(self.file_path, "r", encoding="utf-8") as f:
+                    messages_data = json.load(f)
+                    return messages_from_dict(messages_data)
+            except FileNotFoundError:
+                return []
+            except Exception:
+                logger.warning(f"读取会话消息失败: {self.session_id}", exc_info=True)
+                return []
 
     def add_messages(self, messages: Sequence[BaseMessage]) -> None:
-        all_messages = list(self.messages)
-        all_messages.extend(messages)
+        with self._lock:
+            all_messages = list(self.messages)
+            all_messages.extend(messages)
 
-        new_messages = [message_to_dict(message) for message in all_messages]
+            new_messages = [message_to_dict(message) for message in all_messages]
 
-        with open(self.file_path, "w", encoding="utf-8") as f:
-            json.dump(new_messages, f, ensure_ascii=False)
+            with open(self.file_path, "w", encoding="utf-8") as f:
+                json.dump(new_messages, f, ensure_ascii=False)
 
-        if len(all_messages) >= HISTORY_SUMMARY_THRESHOLD:
-            self._summarize_and_truncate(all_messages)
+            if len(all_messages) >= HISTORY_SUMMARY_THRESHOLD:
+                self._summarize_and_truncate(all_messages)
 
     def get_context_for_llm(self) -> str:
         """获取传递给 LLM 的上下文（包括摘要 + 最近消息）"""
-        summary = self._get_summary()
-        recent_messages = self.messages[-RECENT_MESSAGE_KEEP_COUNT:]
+        with self._lock:
+            summary = self._get_summary()
+            recent_messages = self.messages[-RECENT_MESSAGE_KEEP_COUNT:]
 
         context = ""
         if summary:
@@ -141,7 +151,8 @@ class SummarizingChatMessageHistory(BaseChatMessageHistory):
         return context
 
     def clear(self) -> None:
-        with open(self.file_path, "w", encoding="utf-8") as f:
-            json.dump([], f)
-        if os.path.exists(self.summary_file_path):
-            os.remove(self.summary_file_path)
+        with self._lock:
+            with open(self.file_path, "w", encoding="utf-8") as f:
+                json.dump([], f)
+            if os.path.exists(self.summary_file_path):
+                os.remove(self.summary_file_path)
