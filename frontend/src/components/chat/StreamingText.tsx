@@ -13,8 +13,6 @@ export const StreamingText: React.FC<StreamingTextProps> = ({ content, isStreami
   const lastLenRef = useRef(0);
 
   useEffect(() => {
-    // 流式：仅内容增长时通过 rAF 更新，避免高频渲染
-    // 非流式：直接展示完整内容
     if (!isStreaming || content.length <= lastLenRef.current) {
       setDisplayed(content);
       lastLenRef.current = content.length;
@@ -31,10 +29,20 @@ export const StreamingText: React.FC<StreamingTextProps> = ({ content, isStreami
     return () => cancelAnimationFrame(rafRef.current);
   }, []);
 
+  // 流式进行中 → 纯文本渲染，避免逐 token 触发 Markdown 解析
+  if (isStreaming) {
+    return (
+      <div className="streaming-text">
+        <span className="streaming-text-raw">{displayed}</span>
+        <span className="cursor-blink">▌</span>
+      </div>
+    );
+  }
+
+  // 流式结束 → Markdown 渲染
   return (
     <div className="streaming-text">
       <ReactMarkdown remarkPlugins={[remarkGfm]}>{displayed}</ReactMarkdown>
-      {isStreaming && <span className="cursor-blink">▌</span>}
     </div>
   );
 };

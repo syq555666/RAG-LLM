@@ -4,6 +4,7 @@ import { ChatInput } from './ChatInput';
 import { SuggestionChips } from './SuggestionChips';
 import { useChatStore } from '../../store/chatStore';
 import { useChatStream } from '../../hooks/useChatStream';
+import { useSession } from '../../hooks/useSession';
 
 export const ChatContainer: React.FC = () => {
   const { sendMessage, stopGeneration, isLoading } = useChatStream();
@@ -11,6 +12,7 @@ export const ChatContainer: React.FC = () => {
   const streamingContent = useChatStore((s) => s.streamingContent);
   const suggestions = useChatStore((s) => s.suggestions);
   const sessionId = useChatStore((s) => s.sessionId);
+  const { newChat } = useSession();
 
   return (
     <div className="chat-container">
@@ -27,7 +29,10 @@ export const ChatContainer: React.FC = () => {
       ) : (
         <div className="empty-chat">
           <h2>🤖 智能客服</h2>
-          <p>点击左侧「+ 新会话」开始对话，或选择已有会话</p>
+          <p>开始一个新的对话，探索知识库中的内容</p>
+          <button className="btn-new-chat" onClick={newChat} style={{ marginTop: 12, fontSize: 14, padding: '8px 20px' }}>
+            + 新会话
+          </button>
         </div>
       )}
     </div>
