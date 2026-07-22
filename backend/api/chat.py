@@ -65,11 +65,6 @@ async def stream_chat(request: StreamChatRequest):
                 elif event_type == "tool_end":
                     yield f"event: tool_end\ndata: {json.dumps({'tool_name': event['tool_name'], 'result': event['result']}, ensure_ascii=False)}\n\n"
 
-                elif event_type == "done":
-                    full_response = event.get("full_response", full_response)
-                    # done 事件由 producer 发送哨兵 None 后自然结束
-                    # 这里只是捕获 full_response
-
                 elif event_type == "error":
                     yield f"event: error\ndata: {json.dumps({'error': event['error']}, ensure_ascii=False)}\n\n"
                     return
