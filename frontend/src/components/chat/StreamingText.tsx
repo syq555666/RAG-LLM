@@ -13,17 +13,21 @@ export const StreamingText: React.FC<StreamingTextProps> = ({ content, isStreami
   const lastLenRef = useRef(0);
 
   useEffect(() => {
-    if (!isStreaming || content.length <= lastLenRef.current) {
-      setDisplayed(content);
-      lastLenRef.current = content.length;
-      return;
+    if (content.length > lastLenRef.current) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = requestAnimationFrame(() => {
+        setDisplayed(content);
+        lastLenRef.current = content.length;
+      });
     }
-    cancelAnimationFrame(rafRef.current);
-    rafRef.current = requestAnimationFrame(() => {
+  }, [content]);
+
+  useEffect(() => {
+    if (!isStreaming) {
       setDisplayed(content);
       lastLenRef.current = content.length;
-    });
-  }, [content, isStreaming]);
+    }
+  }, [isStreaming, content]);
 
   useEffect(() => {
     return () => cancelAnimationFrame(rafRef.current);

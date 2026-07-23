@@ -14,7 +14,7 @@ export interface ToolCallRecord {
 
 export interface StreamEvent {
   event: 'tool_start' | 'tool_end' | 'token' | 'done' | 'error';
-  data: TokenData | ToolStartData | ToolEndData | ErrorData;
+  data: TokenData | ToolStartData | ToolEndData | DoneData | ErrorData;
 }
 
 export interface TokenData {
@@ -29,6 +29,10 @@ export interface ToolStartData {
 export interface ToolEndData {
   tool_name: string;
   result: string;
+}
+
+export interface DoneData {
+  full_response: string;
 }
 
 export interface ErrorData {

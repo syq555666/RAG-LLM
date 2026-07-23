@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useChatStore } from '../store/chatStore';
 import { listSessions, createSession, getHistory, deleteSession as apiDeleteSession } from '../api/sessions';
-import { SESSION_KEY } from '../utils/constants';
 import toast from 'react-hot-toast';
 import type { SessionInfo } from '../types/session';
+
+const SESSION_KEY = 'rag_chat_session_id';
 
 export function useSession() {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);

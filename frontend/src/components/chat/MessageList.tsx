@@ -15,6 +15,7 @@ export const MessageList: React.FC<MessageListProps> = ({
   streamingContent,
 }) => {
   const listRef = useRef<HTMLDivElement>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
   const prevMsgCountRef = useRef(messages.length);
   const userScrolledUpRef = useRef(false);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
@@ -96,6 +97,8 @@ export const MessageList: React.FC<MessageListProps> = ({
           streamingContent={streamingContent}
         />
       )}
+      <div ref={bottomRef} />
+
       {showScrollBtn && (
         <button
           className="scroll-to-bottom"
