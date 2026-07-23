@@ -1,11 +1,8 @@
-"""会话管理 API — 列表、创建、历史、删除"""
-
 import os
 import json
 import time
 import uuid
-import logging
-from fastapi import APIRouter, Query
+from fastapi import APIRouter
 
 import config_data as config
 from schemas.session import (
@@ -13,21 +10,7 @@ from schemas.session import (
     HistoryMessage, HistoryResponse
 )
 
-logger = logging.getLogger(__name__)
-
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
-
-# 默认分页参数
-DEFAULT_PAGE_SIZE = 20
-MAX_PAGE_SIZE = 100
-
-
-def _extract_content(msg: dict) -> str:
-    """从 LangChain message_to_dict 格式的消息中提取文本内容。
-    兼容两种格式：嵌套 data.content 和顶层 content。"""
-    if "data" in msg and isinstance(msg["data"], dict):
-        return msg["data"].get("content", "")
-    return msg.get("content", "")
 
 
 def _get_history_path():
@@ -44,22 +27,18 @@ def _get_preview(session_id: str) -> str | None:
                 messages = json.load(f)
             for msg in messages:
                 if msg.get("type") == "human":
-                    content = _extract_content(msg)
+                    content = msg.get("data", {}).get("content", "") if isinstance(msg.get("data"), dict) else msg.get("content", "")
                     return content[:50] + ("..." if len(content) > 50 else "")
             return "(空对话)"
     except Exception:
-        logger.warning(f"读取会话预览失败: {session_id}", exc_info=True)
         return None
 
 
 @router.get("", response_model=SessionListResponse)
-def list_sessions(
-    page: int = Query(default=1, ge=1, description="页码（从 1 开始）"),
-    page_size: int = Query(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE, description="每页数量"),
-):
-    """列出所有会话（分页）"""
+def list_sessions():
+    """列出所有会话"""
     history_path = _get_history_path()
-    all_sessions = []
+    sessions = []
 
     if os.path.exists(history_path):
         for filename in os.listdir(history_path):
@@ -69,33 +48,22 @@ def list_sessions(
                 mtime = os.path.getmtime(file_path)
                 updated_at = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(mtime))
                 preview = _get_preview(session_id)
-                all_sessions.append(SessionInfo(
+                sessions.append(SessionInfo(
                     id=session_id,
                     preview=preview,
                     updated_at=updated_at
                 ))
 
     # 按更新时间倒序
-    all_sessions.sort(key=lambda s: s.updated_at, reverse=True)
-
-    # 分页
-    total = len(all_sessions)
-    start = (page - 1) * page_size
-    end = start + page_size
-    paged = all_sessions[start:end]
-
-    return SessionListResponse(
-        sessions=paged,
-        total=total,
-        page=page,
-        page_size=page_size,
-    )
+    sessions.sort(key=lambda s: s.updated_at, reverse=True)
+    return SessionListResponse(sessions=sessions)
 
 
 @router.post("", response_model=SessionCreateResponse)
 def create_session():
     """创建新会话"""
     session_id = f"session_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
+    # 初始化空的会话文件
     history_path = _get_history_path()
     os.makedirs(history_path, exist_ok=True)
     file_path = os.path.join(history_path, f"{session_id}.json")
@@ -119,10 +87,15 @@ def get_history(session_id: str):
                 raw_messages = json.load(f)
             for msg in raw_messages:
                 role = "user" if msg.get("type") == "human" else "assistant"
-                content = _extract_content(msg)
+                # LangChain message_to_dict 格式: {"type": "human", "data": {"content": "..."}}
+                # 兼容两种格式：嵌套 data.content 和顶层 content
+                if "data" in msg and isinstance(msg["data"], dict):
+                    content = msg["data"].get("content", "")
+                else:
+                    content = msg.get("content", "")
                 messages.append(HistoryMessage(role=role, content=content))
     except Exception:
-        logger.warning(f"读取会话历史失败: {session_id}", exc_info=True)
+        pass
 
     try:
         if os.path.exists(summary_path):
@@ -130,7 +103,7 @@ def get_history(session_id: str):
                 summary_data = json.load(f)
                 summary = summary_data.get("summary", "")
     except Exception:
-        logger.warning(f"读取会话摘要失败: {session_id}", exc_info=True)
+        pass
 
     return HistoryResponse(messages=messages, summary=summary)
 

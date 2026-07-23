@@ -1,11 +1,15 @@
 import os
+from dotenv import load_dotenv
+
+# 加载环境变量
+load_dotenv()
 
 # 基础目录 - backend/data/
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 
 # 去重索引文件路径
-md5_path = os.path.join(DATA_DIR, "md5.json")
+md5_path = os.path.join(DATA_DIR, "md5.text")
 simhash_path = os.path.join(DATA_DIR, "simhash_index.json")
 
 # Chroma 向量数据库
@@ -23,6 +27,7 @@ max_split_char_number = 1000  # 文本分割的阈值
 
 # 检索参数
 top_k = 3  # 检索返回的文档数量
+score_threshold = 0.7  # 向量相似度阈值（0-1之间，越高越严格）
 
 # 默认模型配置（可通过环境变量覆盖）
 embedding_model_name = os.getenv("EMBEDDING_MODEL_NAME", "text-embedding-v4")

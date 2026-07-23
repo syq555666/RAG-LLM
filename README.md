@@ -4,7 +4,7 @@
 
 ## 功能
 
-- 📚 **知识库管理** — 上传/删除文档，自动分块入库（txt、md、csv、json）
+- 📚 **知识库管理** — 上传/删除文档，自动分块入库（txt、md、csv、json、pdf）
 - 🔍 **混合检索** — 向量相似度 + BM25 关键词 + RRF 融合，兼顾语义和关键词匹配
 - 🔄 **智能去重** — MD5 精确去重 + SimHash 近似去重
 - 🤖 **Agent 对话** — DeepSeek 驱动，自动选择和调用工具
@@ -141,38 +141,21 @@ RAG-LLM/
 |------|--------|------|
 | `chunk_size` | 1000 | 文本分块大小 |
 | `chunk_overlap` | 100 | 分块重叠长度 |
-| `max_split_char_number` | 1000 | 文本分割的字符数阈值 |
-| `top_k` | 3 | 检索返回文档数量 |
-| `embedding_model_name` | text-embedding-v4 | Embedding 模型（DashScope） |
-| `chat_model_name` | qwen3-max | 对话模型（DeepSeek） |
-
-在 `backend/services/history_store.py` 中调整：
-
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
+| `top_k` | 3 | 检索返回数量 |
+| `score_threshold` | 0.7 | 向量相似度阈值 |
 | `HISTORY_SUMMARY_THRESHOLD` | 10 | 触发对话摘要的轮数 |
-| `RECENT_MESSAGE_KEEP_COUNT` | 6 | 摘要后保留的最近消息数 |
-
-在 `backend/services/knowledge_base_service.py` 中调整：
-
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| `SIMHASH_SIMILARITY_THRESHOLD` | 0.8 | SimHash 去重相似度阈值 |
 
 ## 技术栈
 
 | 层 | 技术 |
 |----|------|
-| LLM | DeepSeek API（默认模型可通过 `CHAT_MODEL_NAME` 环境变量配置） |
+| LLM | DeepSeek (`deepseek-chat`) via langchain-deepseek |
 | Embedding | 阿里云 DashScope (`text-embedding-v4`) |
 | 向量库 | Chroma（本地持久化） |
-| 检索 | 向量相似度 + BM25 关键词 + RRF 融合（HybridRetriever） |
-| 去重 | MD5 精确去重 + SimHash 近似去重 |
-| 文件解析 | 标准库 `csv` / `json`，支持 txt、md、csv、json |
 | 后端框架 | FastAPI + Uvicorn |
-| 前端框架 | React 19 + TypeScript |
-| 构建工具 | Vite |
-| 状态管理 | Zustand |
+| 前端框架 | React 19 + TypeScript 6 |
+| 构建工具 | Vite 8 |
+| 状态管理 | Zustand 5 |
 | Markdown 渲染 | react-markdown + remark-gfm |
 
 ## License

@@ -1,8 +1,6 @@
-"""聊天 API — SSE 流式对话 + 追问建议"""
-
 import asyncio
 import json
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import HumanMessage, AIMessage
 
@@ -14,11 +12,7 @@ router = APIRouter(prefix="/api/chat", tags=["chat"])
 
 @router.post("/stream")
 async def stream_chat(request: StreamChatRequest):
-    """SSE 流式对话端点
-
-    使用 asyncio.Queue 桥接同步 Agent 生成器和异步 SSE 响应，
-    仅一次 run_in_executor，避免逐 token 线程调度开销。
-    """
+    """SSE 流式对话端点"""
     agent = get_agent_service()
     history_store = get_history_store(request.session_id)
     history_str = history_store.get_context_for_llm()
@@ -28,30 +22,17 @@ async def stream_chat(request: StreamChatRequest):
 
     async def event_generator():
         full_response = ""
-        queue: asyncio.Queue = asyncio.Queue()
-        loop = asyncio.get_running_loop()
-
-        def produce():
-            """在独立线程中运行同步生成器，将事件推入异步队列"""
-            try:
-                for event in agent.stream_events(request.message, history=history_str):
-                    loop.call_soon_threadsafe(queue.put_nowait, event)
-                # 哨兵：表示生成完毕
-                loop.call_soon_threadsafe(queue.put_nowait, None)
-            except Exception as e:
-                loop.call_soon_threadsafe(
-                    queue.put_nowait,
-                    {"type": "error", "error": str(e)}
-                )
-
-        # 在线程池中启动 producer（仅这一次线程调度！）
-        loop.run_in_executor(None, produce)
+        loop = asyncio.get_event_loop()
 
         try:
+            # 在线程池中运行同步的 agent 流式生成
+            gen = agent.stream_events(request.message, history=history_str)
+
             while True:
-                event = await queue.get()
+                # 在线程池中获取下一个事件（避免阻塞事件循环）
+                event = await loop.run_in_executor(None, lambda g=gen: next(g, None))
                 if event is None:
-                    break  # 生成完毕
+                    break
 
                 event_type = event.get("type", "")
 
@@ -64,6 +45,10 @@ async def stream_chat(request: StreamChatRequest):
 
                 elif event_type == "tool_end":
                     yield f"event: tool_end\ndata: {json.dumps({'tool_name': event['tool_name'], 'result': event['result']}, ensure_ascii=False)}\n\n"
+
+                elif event_type == "done":
+                    full_response = event.get("full_response", full_response)
+                    break
 
                 elif event_type == "error":
                     yield f"event: error\ndata: {json.dumps({'error': event['error']}, ensure_ascii=False)}\n\n"
@@ -90,15 +75,11 @@ async def stream_chat(request: StreamChatRequest):
 
 
 @router.post("/suggestions", response_model=SuggestionsResponse)
-async def get_suggestions(request: SuggestionsRequest):
+def get_suggestions(request: SuggestionsRequest):
     """获取追问建议"""
     agent = get_agent_service()
     history_store = get_history_store(request.session_id)
     history_str = history_store.get_context_for_llm()
 
-    loop = asyncio.get_running_loop()
-    suggestions = await loop.run_in_executor(
-        None,
-        lambda: agent.generate_suggestions(request.query, request.response, history=history_str)
-    )
+    suggestions = agent.generate_suggestions(request.query, request.response, history=history_str)
     return SuggestionsResponse(suggestions=suggestions)

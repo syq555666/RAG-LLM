@@ -33,20 +33,10 @@ export const StreamingText: React.FC<StreamingTextProps> = ({ content, isStreami
     return () => cancelAnimationFrame(rafRef.current);
   }, []);
 
-  // 流式进行中 → 纯文本渲染，避免逐 token 触发 Markdown 解析
-  if (isStreaming) {
-    return (
-      <div className="streaming-text">
-        <span className="streaming-text-raw">{displayed}</span>
-        <span className="cursor-blink">▌</span>
-      </div>
-    );
-  }
-
-  // 流式结束 → Markdown 渲染
   return (
     <div className="streaming-text">
       <ReactMarkdown remarkPlugins={[remarkGfm]}>{displayed}</ReactMarkdown>
+      {isStreaming && <span className="cursor-blink">▌</span>}
     </div>
   );
 };

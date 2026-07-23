@@ -1,6 +1,4 @@
 import React, { useState, useRef, useEffect, type KeyboardEvent } from 'react';
-import { useChatStore } from '../../store/chatStore';
-import { useKBStore } from '../../store/kbStore';
 
 interface ChatInputProps {
   onSend: (message: string) => void;
@@ -11,8 +9,6 @@ interface ChatInputProps {
 export const ChatInput: React.FC<ChatInputProps> = ({ onSend, onStop, isLoading }) => {
   const [input, setInput] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const fileCount = useKBStore((s) => s.fileCount);
-  const sessionId = useChatStore((s) => s.sessionId);
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -20,13 +16,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSend, onStop, isLoading 
       textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 120) + 'px';
     }
   }, [input]);
-
-  // 发送后自动聚焦
-  useEffect(() => {
-    if (!isLoading && textareaRef.current) {
-      textareaRef.current.focus();
-    }
-  }, [isLoading]);
 
   const handleSend = () => {
     const trimmed = input.trim();
@@ -42,18 +31,12 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSend, onStop, isLoading 
     }
   };
 
-  const getPlaceholder = () => {
-    if (!sessionId) return '请先创建或选择一个会话...';
-    if (fileCount === 0) return '💡 请先在左侧上传知识库文档...';
-    return '💬 输入你的问题，我会从知识库中寻找答案...';
-  };
-
   return (
     <div className="chat-input-container">
       <textarea
         ref={textareaRef}
         className="chat-input"
-        placeholder={getPlaceholder()}
+        placeholder="💬 输入你的问题，我会从知识库中寻找答案..."
         value={input}
         onChange={(e) => setInput(e.target.value)}
         onKeyDown={handleKeyDown}
